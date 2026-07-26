@@ -198,6 +198,11 @@ enum VisualizerBarStyle: String, CaseIterable, Identifiable, Codable {
     case glowingDots = "Pulsing Dots Matrix"
     case floatingParticles = "Audio Particles"
     case minimalPills = "Minimal Pill Meters"
+    case mirrorFrequency = "Mirrored Dual Spectrum"
+    case cyberpunkGrid = "Cyberpunk Peak Equalizer"
+    case circularOrbit = "Circular Orbit Ring"
+    case liquidFlow = "Fluid Liquid Wave"
+    case strobeBeat = "Strobe Pulse Meters"
     
     var id: String { self.rawValue }
 }
@@ -1753,6 +1758,107 @@ struct ModernVisualizerView: View {
                         .frame(width: max(8, avgRight * 60), height: 6)
                         .animation(.easeInOut(duration: 0.08), value: avgRight)
                 }
+                
+            case .mirrorFrequency:
+                HStack(spacing: 4) {
+                    ForEach(0..<levels.count, id: \.self) { index in
+                        let h = max(2, levels[index] * 16)
+                        VStack(spacing: 2) {
+                            RoundedRectangle(cornerRadius: 1.5)
+                                .fill(accentColor)
+                                .frame(width: 3.5, height: h)
+                            RoundedRectangle(cornerRadius: 1.5)
+                                .fill(accentColor.opacity(0.5))
+                                .frame(width: 3.5, height: h)
+                        }
+                        .animation(.easeInOut(duration: 0.08), value: levels[index])
+                    }
+                }
+                
+            case .cyberpunkGrid:
+                HStack(spacing: 4) {
+                    ForEach(0..<min(12, levels.count), id: \.self) { index in
+                        VStack(spacing: 2) {
+                            // Peak Hold Segment Indicator
+                            RoundedRectangle(cornerRadius: 1)
+                                .fill(accentColor)
+                                .frame(width: 5, height: 2)
+                                .offset(y: -max(0, levels[index] * 20))
+                                .animation(.easeOut(duration: 0.2), value: levels[index])
+                            
+                            VStack(spacing: 2) {
+                                ForEach((0..<6).reversed(), id: \.self) { seg in
+                                    let threshold = CGFloat(seg + 1) / 6.0
+                                    let active = levels[index] >= threshold
+                                    let color: Color = seg >= 4 ? .red : (seg >= 2 ? .yellow : accentColor)
+                                    
+                                    RoundedRectangle(cornerRadius: 1)
+                                        .fill(active ? color : Color.white.opacity(0.08))
+                                        .frame(width: 5, height: 3)
+                                }
+                            }
+                        }
+                    }
+                }
+                
+            case .circularOrbit:
+                ZStack {
+                    Circle()
+                        .stroke(accentColor.opacity(0.2), lineWidth: 1.5)
+                        .frame(width: 28, height: 28)
+                    
+                    ForEach(0..<12, id: \.self) { i in
+                        let angle = Double(i) * (360.0 / 12.0)
+                        let lvl = levels[i % levels.count]
+                        Capsule()
+                            .fill(accentColor)
+                            .frame(width: 2.5, height: max(4, lvl * 12))
+                            .offset(y: -16)
+                            .rotationEffect(.degrees(angle))
+                    }
+                }
+                .frame(width: 36, height: 36)
+                
+            case .liquidFlow:
+                GeometryReader { geo in
+                    Path { path in
+                        let w = geo.size.width
+                        let h = geo.size.height
+                        let mid = h / 2.0
+                        let pts = levels.count
+                        
+                        path.move(to: CGPoint(x: 0, y: mid))
+                        for i in 0..<pts {
+                            let x = CGFloat(i) * (w / CGFloat(pts - 1))
+                            let dy = (levels[i] - 0.2) * (h * 0.4)
+                            let y = mid + (i % 2 == 0 ? dy : -dy)
+                            path.addQuadCurve(to: CGPoint(x: x, y: y), control: CGPoint(x: x - 5, y: mid))
+                        }
+                        path.addLine(to: CGPoint(x: w, y: h))
+                        path.addLine(to: CGPoint(x: 0, y: h))
+                        path.closeSubpath()
+                    }
+                    .fill(
+                        LinearGradient(
+                            gradient: Gradient(colors: [accentColor.opacity(0.8), accentColor.opacity(0.1)]),
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                }
+                .frame(width: 140, height: 32)
+                
+            case .strobeBeat:
+                HStack(spacing: 6) {
+                    ForEach(0..<min(8, levels.count), id: \.self) { index in
+                        let lvl = levels[index]
+                        Circle()
+                            .stroke(accentColor, lineWidth: max(1, lvl * 4))
+                            .background(Circle().fill(accentColor.opacity(Double(lvl) * 0.6)))
+                            .frame(width: max(8, lvl * 22), height: max(8, lvl * 22))
+                            .animation(.spring(response: 0.15, dampingFraction: 0.6), value: lvl)
+                    }
+                }
             }
         }
         .frame(height: 36)
@@ -3027,6 +3133,11 @@ struct SettingsView: View {
                                 case .glowingDots: return "circle.grid.3x3.fill"
                                 case .floatingParticles: return "sparkles"
                                 case .minimalPills: return "slider.horizontal.3"
+                                case .mirrorFrequency: return "arrow.up.and.down"
+                                case .cyberpunkGrid: return "bolt.horizontal.fill"
+                                case .circularOrbit: return "circle.dashed"
+                                case .liquidFlow: return "drop.fill"
+                                case .strobeBeat: return "circle.badge.plus"
                                 }
                             }()
                             

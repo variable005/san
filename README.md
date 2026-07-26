@@ -16,12 +16,17 @@ San (Japanese for Three / Harmony) provides a clean, modern interface for listen
 ## Features
 
 ### Audio Spectrum Bar Visualizer Options
-- **5 Selectable Spectrum Bar Styles**: Choose how the live audio waveform spectrum renders across the player stage, bottom player, and menu bar popover:
-  1. **Vertical Bars**: Classic vertical spectrum bars with level gradients.
+- **10 Selectable Spectrum Bar Styles**: Choose how the live audio waveform spectrum renders across the player stage, bottom player, and menu bar popover:
+  1. **Vertical Bars**: Classic vertical spectrum bars with level gradients (matching the reference image).
   2. **Continuous Waveform**: Smooth connected sine curve frequency waveform.
   3. **Pulsing Dots Matrix**: Illuminated dot matrix level meter grid.
   4. **Audio Particles**: Floating glowing particles bouncing up with the rhythm.
   5. **Minimal Pill Meters**: Dual horizontal stereo level meters.
+  6. **Mirrored Dual Spectrum**: Symmetrical top & bottom dual frequency spectrum bars.
+  7. **Cyberpunk Peak Equalizer**: Segmented LED equalizer blocks with peak hold indicators.
+  8. **Circular Orbit Ring**: Rotating circular ring with radial level bars.
+  9. **Fluid Liquid Wave**: Organic fluid liquid wave filling with beat density.
+  10. **Strobe Pulse Meters**: Concentric pulsating beat rings.
 
 ### Artist & Library Auto-Detection
 - **Dedicated Artists Page**: Automatically groups tracks by artist with artist profile banners, total album counts, and total song counts.
