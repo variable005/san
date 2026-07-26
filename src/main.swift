@@ -1317,6 +1317,10 @@ struct FolderModeView: View {
                             RoundedRectangle(cornerRadius: 8)
                                 .fill(isSelected ? UniformDesign.activeHighlight : (isHovered ? UniformDesign.hoverHighlight : Color.clear))
                         )
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            engine.loadAndPlay(track: track)
+                        }
                         .onHover { hovering in
                             engine.hoveredTrackId = hovering ? track.id : nil
                         }
@@ -1916,6 +1920,10 @@ struct ContentView: View {
                                                             RoundedRectangle(cornerRadius: 8)
                                                                 .fill(isSelected ? UniformDesign.activeHighlight : (isHovered ? UniformDesign.hoverHighlight : Color.clear))
                                                         )
+                                                        .contentShape(Rectangle())
+                                                        .onTapGesture {
+                                                            engine.loadAndPlay(track: track)
+                                                        }
                                                         .onHover { hovering in
                                                             engine.hoveredTrackId = hovering ? track.id : nil
                                                         }
