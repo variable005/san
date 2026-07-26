@@ -3511,13 +3511,19 @@ struct ContentView: View {
                         // MARK: Sidebar Navigation
                         VStack(alignment: .leading, spacing: 20) {
                             // App Brand Header
-                            Text("SAN")
-                                .font(.system(size: 20, weight: .black, design: .rounded))
-                                .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
-                                .tracking(2.0)
-                                .padding(.horizontal, 16)
-                                .padding(.top, 24)
-                                .padding(.bottom, 6)
+                            HStack(spacing: 8) {
+                                Text("SAN")
+                                    .font(.system(size: 20, weight: .bold, design: .default))
+                                    .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
+                                    .tracking(3.5)
+                                
+                                Text("三")
+                                    .font(.system(size: 14, weight: .light))
+                                    .foregroundColor(engine.activeAccentColor)
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.top, 24)
+                            .padding(.bottom, 6)
                             
                             // Grouped Sidebar Sections
                             ScrollView(.vertical, showsIndicators: false) {

@@ -1,6 +1,14 @@
+<p align="center">
+  <img src="assets/banner.png" alt="San (三) Music Player Banner" width="100%" />
+</p>
+
 # San (三)
 
 > San is a native, ultra-lightweight, 100% offline macOS local music player built with Swift and SwiftUI.
+
+<p align="center">
+  <img src="assets/logo.png" alt="San App Icon" width="160" />
+</p>
 
 > [!WARNING]
 > **Development Status**: San is currently under active development and may be unstable. Features, behavior, and build artifacts are subject to change.
@@ -14,12 +22,6 @@ San (Japanese for Three / Harmony) provides a clean, modern interface for listen
 ---
 
 ## Features
-
-### Folder Auto-Ranging & Smart Metadata Scanning
-- **Automatic Library Integration**: Opening or importing a folder automatically merges all unique tracks into the central library, populating the Artists Page and Albums Page instantly.
-- **Smart Folder Hierarchy Metadata Parsing**:
-  - **Album Auto-Detection**: Fallback to parent directory name if ID3 album tag is missing.
-  - **Artist Auto-Detection**: Fallback to grandparent directory name or `"Artist - Song Title.mp3"` filename format if ID3 artist tag is missing.
 
 ### Audio Spectrum Bar Visualizer Options
 - **10 Selectable Spectrum Bar Styles**: Choose how the live audio waveform spectrum renders across the player stage, bottom player, and menu bar popover:
@@ -41,6 +43,12 @@ San (Japanese for Three / Harmony) provides a clean, modern interface for listen
 
 ### Artwork Visualizer & Motion Animations
 - **7 Player Motion Options**: Selectable presentation options in Settings (Fluid Spring, Vinyl Record Spin, Wave Spectrum Ring, Floating Glass Card, Neon Aura Glow, Gentle Ease, Snappy Fast).
+
+### Folder Auto-Ranging & Smart Metadata Scanning
+- **Automatic Library Integration**: Opening or importing a folder automatically merges all unique tracks into the central library, populating the Artists Page and Albums Page instantly.
+- **Smart Folder Hierarchy Metadata Parsing**:
+  - **Album Auto-Detection**: Fallback to parent directory name if ID3 album tag is missing.
+  - **Artist Auto-Detection**: Fallback to grandparent directory name or `"Artist - Song Title.mp3"` filename format if ID3 artist tag is missing.
 
 ### Audio Engine & Playback
 - **Crossfade Transitions**: Configurable overlap transition durations (Off, 1s, 2s, 3s, 5s) between tracks.
