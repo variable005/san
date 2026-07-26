@@ -98,9 +98,10 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var selectedEQPreset: EQPreset = .flat
     @Published var eqGains: [Float] = [0, 0, 0, 0, 0]
     
-    // Lyrics State
+    // Lyrics & View Toggles
     @Published var currentLyrics: [LyricLine] = []
     @Published var activeLyricIndex: Int? = nil
+    @Published var showLyrics: Bool = true
     
     // Navigation & UI State
     @Published var selectedNav: NavigationItem = .nowPlaying
@@ -568,20 +569,34 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
 }
 
-// MARK: - Modern UI Components
+// MARK: - Uniform UI Design System
+
+struct UniformDesign {
+    static let bgMain = Color(red: 0.08, green: 0.08, blue: 0.09)
+    static let bgSidebar = Color(red: 0.10, green: 0.10, blue: 0.11)
+    static let bgCard = Color(red: 0.13, green: 0.13, blue: 0.14)
+    static let bgBottomBar = Color(red: 0.11, green: 0.11, blue: 0.12)
+    static let borderSubtle = Color.white.opacity(0.07)
+    static let activeHighlight = Color.white.opacity(0.12)
+    static let hoverHighlight = Color.white.opacity(0.05)
+    
+    static let textPrimary = Color.white
+    static let textSecondary = Color.white.opacity(0.65)
+    static let textMuted = Color.white.opacity(0.40)
+}
 
 struct ModernCard<Content: View>: View {
-    var cornerRadius: CGFloat = 16
+    var cornerRadius: CGFloat = 14
     @ViewBuilder var content: Content
     
     var body: some View {
         content
             .background(
                 RoundedRectangle(cornerRadius: cornerRadius)
-                    .fill(Color(red: 0.13, green: 0.13, blue: 0.14))
+                    .fill(UniformDesign.bgCard)
                     .overlay(
                         RoundedRectangle(cornerRadius: cornerRadius)
-                            .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                            .stroke(UniformDesign.borderSubtle, lineWidth: 1)
                     )
             )
     }
@@ -590,8 +605,8 @@ struct ModernCard<Content: View>: View {
 struct ModernButton: View {
     let buttonId: String
     let icon: String
-    var size: CGFloat = 40
-    var iconSize: CGFloat = 16
+    var size: CGFloat = 36
+    var iconSize: CGFloat = 15
     var active: Bool = false
     var isPrimary: Bool = false
     @ObservedObject var engine: AudioEngine
@@ -613,15 +628,15 @@ struct ModernButton: View {
                         .foregroundColor(.black)
                 } else {
                     Circle()
-                        .fill(active ? Color.white.opacity(0.18) : (isHovered ? Color.white.opacity(0.1) : Color.white.opacity(0.05)))
+                        .fill(active ? UniformDesign.activeHighlight : (isHovered ? UniformDesign.hoverHighlight : Color.white.opacity(0.04)))
                         .frame(width: size, height: size)
                         .overlay(
                             Circle()
-                                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                                .stroke(UniformDesign.borderSubtle, lineWidth: 1)
                         )
                     Image(systemName: icon)
                         .font(.system(size: iconSize, weight: .medium))
-                        .foregroundColor(active ? .white : Color.white.opacity(0.7))
+                        .foregroundColor(active ? .white : UniformDesign.textSecondary)
                 }
             }
             .scaleEffect(isHovered ? 1.05 : 1.0)
@@ -636,7 +651,7 @@ struct ModernButton: View {
 
 struct ArtworkView: View {
     let artwork: NSImage?
-    var size: CGFloat = 180
+    var size: CGFloat = 160
     
     var body: some View {
         Group {
@@ -649,17 +664,17 @@ struct ArtworkView: View {
                     Color(red: 0.18, green: 0.18, blue: 0.20)
                     Image(systemName: "music.note")
                         .font(.system(size: size * 0.35, weight: .light))
-                        .foregroundColor(Color.white.opacity(0.4))
+                        .foregroundColor(UniformDesign.textMuted)
                 }
             }
         }
         .frame(width: size, height: size)
-        .cornerRadius(12)
+        .cornerRadius(10)
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(UniformDesign.borderSubtle, lineWidth: 1)
         )
-        .shadow(color: Color.black.opacity(0.4), radius: 12, x: 0, y: 6)
+        .shadow(color: Color.black.opacity(0.35), radius: 10, x: 0, y: 5)
     }
 }
 
@@ -671,11 +686,11 @@ struct ModernVisualizerView: View {
             ForEach(0..<levels.count, id: \.self) { index in
                 RoundedRectangle(cornerRadius: 2)
                     .fill(Color.white.opacity(0.85))
-                    .frame(width: 4, height: max(4, levels[index] * 36))
+                    .frame(width: 4, height: max(4, levels[index] * 32))
                     .animation(.easeInOut(duration: 0.1), value: levels[index])
             }
         }
-        .frame(height: 40)
+        .frame(height: 36)
     }
 }
 
@@ -686,41 +701,41 @@ struct MiniPlayerView: View {
     
     var body: some View {
         ZStack {
-            Color(red: 0.10, green: 0.10, blue: 0.11)
+            UniformDesign.bgSidebar
                 .ignoresSafeArea()
             
             HStack(spacing: 12) {
-                ArtworkView(artwork: engine.currentTrack?.artwork, size: 64)
+                ArtworkView(artwork: engine.currentTrack?.artwork, size: 60)
                 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(engine.currentTrack?.title ?? "No Song Playing")
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(.white)
+                        .foregroundColor(UniformDesign.textPrimary)
                         .lineLimit(1)
                     
                     Text(engine.currentTrack?.artist ?? "Select a track")
                         .font(.system(size: 11))
-                        .foregroundColor(Color.white.opacity(0.5))
+                        .foregroundColor(UniformDesign.textSecondary)
                         .lineLimit(1)
                     
                     // Transport controls
-                    HStack(spacing: 10) {
+                    HStack(spacing: 12) {
                         Button(action: { engine.previousTrack() }) {
                             Image(systemName: "backward.fill")
                                 .font(.system(size: 12))
-                                .foregroundColor(.white)
+                                .foregroundColor(UniformDesign.textPrimary)
                         }.buttonStyle(PlainButtonStyle())
                         
                         Button(action: { engine.togglePlay() }) {
                             Image(systemName: engine.isPlaying ? "pause.fill" : "play.fill")
                                 .font(.system(size: 14, weight: .bold))
-                                .foregroundColor(.white)
+                                .foregroundColor(UniformDesign.textPrimary)
                         }.buttonStyle(PlainButtonStyle())
                         
                         Button(action: { engine.nextTrack() }) {
                             Image(systemName: "forward.fill")
                                 .font(.system(size: 12))
-                                .foregroundColor(.white)
+                                .foregroundColor(UniformDesign.textPrimary)
                         }.buttonStyle(PlainButtonStyle())
                         
                         Spacer()
@@ -728,10 +743,10 @@ struct MiniPlayerView: View {
                         Button(action: { engine.toggleMiniPlayer() }) {
                             Image(systemName: "rectangle.expand.vertical")
                                 .font(.system(size: 11))
-                                .foregroundColor(Color.white.opacity(0.6))
+                                .foregroundColor(UniformDesign.textSecondary)
                         }.buttonStyle(PlainButtonStyle())
                     }
-                    .padding(.top, 4)
+                    .padding(.top, 2)
                 }
             }
             .padding(12)
@@ -749,7 +764,7 @@ struct EqualizerView: View {
         VStack(alignment: .leading, spacing: 20) {
             Text("Graphic Equalizer")
                 .font(.system(size: 18, weight: .bold))
-                .foregroundColor(.white)
+                .foregroundColor(UniformDesign.textPrimary)
             
             // Preset Buttons
             HStack(spacing: 10) {
@@ -757,12 +772,12 @@ struct EqualizerView: View {
                     Button(action: { engine.applyEQPreset(preset) }) {
                         Text(preset.rawValue)
                             .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(engine.selectedEQPreset == preset ? .black : .white)
+                            .foregroundColor(engine.selectedEQPreset == preset ? .black : UniformDesign.textPrimary)
                             .padding(.horizontal, 14)
                             .padding(.vertical, 6)
                             .background(
                                 Capsule()
-                                    .fill(engine.selectedEQPreset == preset ? Color.white : Color.white.opacity(0.1))
+                                    .fill(engine.selectedEQPreset == preset ? Color.white : Color.white.opacity(0.08))
                             )
                     }
                     .buttonStyle(PlainButtonStyle())
@@ -770,13 +785,13 @@ struct EqualizerView: View {
             }
             
             // EQ Band Sliders
-            ModernCard(cornerRadius: 16) {
-                HStack(spacing: 32) {
+            ModernCard(cornerRadius: 14) {
+                HStack(spacing: 36) {
                     ForEach(0..<5, id: \.self) { index in
-                        VStack(spacing: 12) {
+                        VStack(spacing: 14) {
                             Text(String(format: "+%.0fdB", engine.eqGains[index]))
-                                .font(.system(size: 10, design: .monospaced))
-                                .foregroundColor(Color.white.opacity(0.6))
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundColor(UniformDesign.textSecondary)
                             
                             Slider(value: Binding(
                                 get: { Double(engine.eqGains[index]) },
@@ -785,12 +800,13 @@ struct EqualizerView: View {
                                     engine.saveLibrary()
                                 }
                             ), in: -12...12)
+                            .accentColor(.white)
                             .rotationEffect(.degrees(-90))
                             .frame(width: 140, height: 40)
                             
                             Text(bandLabels[index])
                                 .font(.system(size: 11, weight: .semibold))
-                                .foregroundColor(Color.white.opacity(0.8))
+                                .foregroundColor(UniformDesign.textSecondary)
                         }
                     }
                 }
@@ -831,7 +847,7 @@ struct ContentView: View {
             } else {
                 ZStack {
                     // Modern Solid Dark Background
-                    Color(red: 0.08, green: 0.08, blue: 0.09)
+                    UniformDesign.bgMain
                         .ignoresSafeArea()
                     
                     // Main Window Content Layout
@@ -842,11 +858,11 @@ struct ContentView: View {
                             HStack(spacing: 12) {
                                 Image(systemName: "music.note.house.fill")
                                     .font(.system(size: 18, weight: .bold))
-                                    .foregroundColor(.white)
+                                    .foregroundColor(UniformDesign.textPrimary)
                                 
                                 Text("SAN")
                                     .font(.system(size: 18, weight: .bold))
-                                    .foregroundColor(.white)
+                                    .foregroundColor(UniformDesign.textPrimary)
                             }
                             .padding(.horizontal, 20)
                             .padding(.top, 24)
@@ -858,17 +874,17 @@ struct ContentView: View {
                                         HStack(spacing: 12) {
                                             Image(systemName: item.iconName)
                                                 .font(.system(size: 15, weight: .medium))
-                                                .foregroundColor(engine.selectedNav == item ? .white : Color.white.opacity(0.5))
+                                                .foregroundColor(engine.selectedNav == item ? .white : UniformDesign.textMuted)
                                             Text(item.rawValue)
                                                 .font(.system(size: 13, weight: engine.selectedNav == item ? .semibold : .medium))
-                                                .foregroundColor(engine.selectedNav == item ? .white : Color.white.opacity(0.6))
+                                                .foregroundColor(engine.selectedNav == item ? .white : UniformDesign.textSecondary)
                                             Spacer()
                                         }
                                         .padding(.vertical, 8)
                                         .padding(.horizontal, 14)
                                         .background(
                                             RoundedRectangle(cornerRadius: 8)
-                                                .fill(engine.selectedNav == item ? Color.white.opacity(0.1) : Color.clear)
+                                                .fill(engine.selectedNav == item ? UniformDesign.activeHighlight : Color.clear)
                                         )
                                     }
                                     .buttonStyle(PlainButtonStyle())
@@ -886,16 +902,16 @@ struct ContentView: View {
                                     Text("Import Music")
                                         .font(.system(size: 13, weight: .semibold))
                                 }
-                                .foregroundColor(.white)
+                                .foregroundColor(UniformDesign.textPrimary)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 10)
                                 .background(
-                                    RoundedRectangle(cornerRadius: 10)
+                                    RoundedRectangle(cornerRadius: 8)
                                         .fill(Color.white.opacity(0.08))
                                 )
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: 10)
-                                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(UniformDesign.borderSubtle, lineWidth: 1)
                                 )
                             }
                             .buttonStyle(PlainButtonStyle())
@@ -903,10 +919,10 @@ struct ContentView: View {
                             .padding(.bottom, 20)
                         }
                         .frame(width: 200)
-                        .background(Color(red: 0.10, green: 0.10, blue: 0.11))
+                        .background(UniformDesign.bgSidebar)
                         
                         Rectangle()
-                            .fill(Color.white.opacity(0.06))
+                            .fill(UniformDesign.borderSubtle)
                             .frame(width: 1)
                         
                         // MARK: Main Content Workspace
@@ -915,11 +931,11 @@ struct ContentView: View {
                             HStack {
                                 HStack(spacing: 10) {
                                     Image(systemName: "magnifyingglass")
-                                        .foregroundColor(Color.white.opacity(0.4))
+                                        .foregroundColor(UniformDesign.textMuted)
                                         .font(.system(size: 13))
                                     TextField("Search tracks, artists...", text: $engine.searchText)
                                         .textFieldStyle(PlainTextFieldStyle())
-                                        .foregroundColor(.white)
+                                        .foregroundColor(UniformDesign.textPrimary)
                                         .font(.system(size: 13))
                                 }
                                 .padding(.vertical, 7)
@@ -939,7 +955,7 @@ struct ContentView: View {
                                         Text("Mini Player")
                                             .font(.system(size: 12, weight: .medium))
                                     }
-                                    .foregroundColor(Color.white.opacity(0.7))
+                                    .foregroundColor(UniformDesign.textSecondary)
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 6)
                                     .background(Capsule().fill(Color.white.opacity(0.08)))
@@ -948,7 +964,7 @@ struct ContentView: View {
                                 
                                 Text("\(engine.playlist.count) tracks")
                                     .font(.system(size: 12))
-                                    .foregroundColor(Color.white.opacity(0.4))
+                                    .foregroundColor(UniformDesign.textMuted)
                             }
                             .padding(.horizontal, 24)
                             .padding(.top, 18)
@@ -961,96 +977,115 @@ struct ContentView: View {
                                         EqualizerView(engine: engine)
                                     } else {
                                         if engine.selectedNav == .nowPlaying || engine.playlist.isEmpty {
-                                            // Now Playing Stage with Synced Lyrics
-                                            ModernCard(cornerRadius: 16) {
+                                            // Now Playing Stage with Lyrics & Lyrics Toggle Button
+                                            ModernCard(cornerRadius: 14) {
                                                 if let track = engine.currentTrack {
                                                     HStack(alignment: .top, spacing: 28) {
+                                                        // Artwork and Track Info
                                                         VStack(alignment: .leading, spacing: 14) {
                                                             ArtworkView(artwork: track.artwork, size: 160)
                                                             
                                                             HStack {
                                                                 VStack(alignment: .leading, spacing: 4) {
                                                                     Text(track.title)
-                                                                        .font(.system(size: 20, weight: .bold))
-                                                                        .foregroundColor(.white)
+                                                                        .font(.system(size: 18, weight: .bold))
+                                                                        .foregroundColor(UniformDesign.textPrimary)
                                                                         .lineLimit(1)
                                                                     
                                                                     Text(track.artist)
-                                                                        .font(.system(size: 14, weight: .medium))
-                                                                        .foregroundColor(Color.white.opacity(0.7))
+                                                                        .font(.system(size: 13, weight: .medium))
+                                                                        .foregroundColor(UniformDesign.textSecondary)
+                                                                        .lineLimit(1)
                                                                 }
                                                                 Spacer()
                                                                 
+                                                                // Lyrics Toggle Button
+                                                                Button(action: { engine.showLyrics.toggle() }) {
+                                                                    Image(systemName: engine.showLyrics ? "text.quote" : "text.alignleft")
+                                                                        .font(.system(size: 14, weight: .medium))
+                                                                        .foregroundColor(engine.showLyrics ? .white : UniformDesign.textMuted)
+                                                                        .padding(6)
+                                                                        .background(Circle().fill(engine.showLyrics ? Color.white.opacity(0.15) : Color.clear))
+                                                                }
+                                                                .buttonStyle(PlainButtonStyle())
+                                                                
+                                                                // Favorite Heart Button
                                                                 Button(action: { engine.toggleFavorite(track: track) }) {
                                                                     Image(systemName: engine.isFavorite(track: track) ? "heart.fill" : "heart")
-                                                                        .font(.system(size: 18))
-                                                                        .foregroundColor(engine.isFavorite(track: track) ? .red : Color.white.opacity(0.6))
+                                                                        .font(.system(size: 16))
+                                                                        .foregroundColor(engine.isFavorite(track: track) ? .red : UniformDesign.textMuted)
+                                                                        .padding(6)
                                                                 }
                                                                 .buttonStyle(PlainButtonStyle())
                                                             }
                                                             
                                                             ModernVisualizerView(levels: engine.visualizerLevels)
                                                         }
-                                                        .frame(width: 220)
+                                                        .frame(width: engine.showLyrics ? 220 : .infinity, alignment: .leading)
                                                         
-                                                        // Synced Lyrics Display
-                                                        VStack(alignment: .leading, spacing: 10) {
-                                                            Text("Lyrics")
-                                                                .font(.system(size: 14, weight: .bold))
-                                                                .foregroundColor(Color.white.opacity(0.6))
-                                                            
-                                                            if engine.currentLyrics.isEmpty {
-                                                                VStack {
-                                                                    Spacer()
-                                                                    Text("No synced lyrics found (.lrc)")
-                                                                        .font(.system(size: 13))
-                                                                        .foregroundColor(Color.white.opacity(0.4))
+                                                        // Synced Lyrics Display Panel (Toggable)
+                                                        if engine.showLyrics {
+                                                            VStack(alignment: .leading, spacing: 10) {
+                                                                HStack {
+                                                                    Text("Lyrics")
+                                                                        .font(.system(size: 13, weight: .bold))
+                                                                        .foregroundColor(UniformDesign.textSecondary)
                                                                     Spacer()
                                                                 }
-                                                                .frame(maxWidth: .infinity, maxHeight: 180)
-                                                            } else {
-                                                                ScrollViewReader { proxy in
-                                                                    ScrollView {
-                                                                        VStack(alignment: .leading, spacing: 10) {
-                                                                            ForEach(Array(engine.currentLyrics.enumerated()), id: \.element.id) { idx, line in
-                                                                                let isActive = engine.activeLyricIndex == idx
-                                                                                Text(line.text)
-                                                                                    .font(.system(size: isActive ? 16 : 13, weight: isActive ? .bold : .regular))
-                                                                                    .foregroundColor(isActive ? .white : Color.white.opacity(0.35))
-                                                                                    .id(idx)
+                                                                
+                                                                if engine.currentLyrics.isEmpty {
+                                                                    VStack {
+                                                                        Spacer()
+                                                                        Text("No synced lyrics found (.lrc file)")
+                                                                            .font(.system(size: 12))
+                                                                            .foregroundColor(UniformDesign.textMuted)
+                                                                        Spacer()
+                                                                    }
+                                                                    .frame(maxWidth: .infinity, maxHeight: 180)
+                                                                } else {
+                                                                    ScrollViewReader { proxy in
+                                                                        ScrollView {
+                                                                            VStack(alignment: .leading, spacing: 10) {
+                                                                                ForEach(Array(engine.currentLyrics.enumerated()), id: \.element.id) { idx, line in
+                                                                                    let isActive = engine.activeLyricIndex == idx
+                                                                                    Text(line.text)
+                                                                                        .font(.system(size: isActive ? 15 : 13, weight: isActive ? .bold : .regular))
+                                                                                        .foregroundColor(isActive ? .white : UniformDesign.textMuted)
+                                                                                        .id(idx)
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                        .onChange(of: engine.activeLyricIndex) { newIndex in
+                                                                            if let index = newIndex {
+                                                                                withAnimation(.easeInOut(duration: 0.2)) {
+                                                                                    proxy.scrollTo(index, anchor: .center)
+                                                                                }
                                                                             }
                                                                         }
                                                                     }
-                                                                    .onChange(of: engine.activeLyricIndex) { newIndex in
-                                                                        if let index = newIndex {
-                                                                            withAnimation(.easeInOut(duration: 0.2)) {
-                                                                                proxy.scrollTo(index, anchor: .center)
-                                                                            }
-                                                                        }
-                                                                    }
+                                                                    .frame(maxHeight: 200)
                                                                 }
-                                                                .frame(maxHeight: 200)
                                                             }
+                                                            .frame(maxWidth: .infinity, alignment: .leading)
                                                         }
-                                                        .frame(maxWidth: .infinity, alignment: .leading)
                                                     }
                                                     .padding(24)
                                                 } else {
                                                     VStack(spacing: 14) {
                                                         Image(systemName: "arrow.down.doc.fill")
                                                             .font(.system(size: 40, weight: .light))
-                                                            .foregroundColor(Color.white.opacity(0.4))
+                                                            .foregroundColor(UniformDesign.textMuted)
                                                         Text("Drag & Drop Music Files Here")
                                                             .font(.system(size: 18, weight: .semibold))
-                                                            .foregroundColor(.white)
+                                                            .foregroundColor(UniformDesign.textPrimary)
                                                         Text("Or click 'Import Music' to select audio files from Finder")
                                                             .font(.system(size: 13))
-                                                            .foregroundColor(Color.white.opacity(0.4))
+                                                            .foregroundColor(UniformDesign.textMuted)
                                                         
                                                         Button(action: { engine.openFiles() }) {
                                                             Text("Open Files")
                                                                 .font(.system(size: 13, weight: .semibold))
-                                                                .foregroundColor(.white)
+                                                                .foregroundColor(UniformDesign.textPrimary)
                                                                 .padding(.horizontal, 20)
                                                                 .padding(.vertical, 8)
                                                                 .background(
@@ -1070,14 +1105,14 @@ struct ContentView: View {
                                         VStack(alignment: .leading, spacing: 10) {
                                             Text(engine.selectedNav == .favorites ? "Favorite Tracks" : "Library Tracks")
                                                 .font(.system(size: 16, weight: .bold))
-                                                .foregroundColor(.white)
+                                                .foregroundColor(UniformDesign.textPrimary)
                                                 .padding(.horizontal, 24)
                                             
                                             if filteredPlaylist.isEmpty {
                                                 VStack {
                                                     Text(engine.selectedNav == .favorites ? "No favorite tracks added yet." : "No music in library yet. Drag and drop audio files anywhere!")
                                                         .font(.system(size: 13))
-                                                        .foregroundColor(Color.white.opacity(0.4))
+                                                        .foregroundColor(UniformDesign.textMuted)
                                                         .padding(24)
                                                 }
                                             } else {
@@ -1089,7 +1124,7 @@ struct ContentView: View {
                                                         HStack(spacing: 14) {
                                                             Text("\(index + 1)")
                                                                 .font(.system(size: 12, design: .monospaced))
-                                                                .foregroundColor(Color.white.opacity(0.4))
+                                                                .foregroundColor(UniformDesign.textMuted)
                                                                 .frame(width: 24, alignment: .trailing)
                                                             
                                                             ArtworkView(artwork: track.artwork, size: 32)
@@ -1097,11 +1132,11 @@ struct ContentView: View {
                                                             VStack(alignment: .leading, spacing: 2) {
                                                                 Text(track.title)
                                                                     .font(.system(size: 13, weight: .medium))
-                                                                    .foregroundColor(isSelected ? .white : Color.white.opacity(0.9))
+                                                                    .foregroundColor(isSelected ? .white : UniformDesign.textPrimary)
                                                                     .lineLimit(1)
                                                                 Text(track.artist)
                                                                     .font(.system(size: 11))
-                                                                    .foregroundColor(Color.white.opacity(0.5))
+                                                                    .foregroundColor(UniformDesign.textSecondary)
                                                                     .lineLimit(1)
                                                             }
                                                             
@@ -1110,24 +1145,24 @@ struct ContentView: View {
                                                             Button(action: { engine.toggleFavorite(track: track) }) {
                                                                 Image(systemName: engine.isFavorite(track: track) ? "heart.fill" : "heart")
                                                                     .font(.system(size: 12))
-                                                                    .foregroundColor(engine.isFavorite(track: track) ? .red : Color.white.opacity(0.4))
+                                                                    .foregroundColor(engine.isFavorite(track: track) ? .red : UniformDesign.textMuted)
                                                             }
                                                             .buttonStyle(PlainButtonStyle())
                                                             
                                                             Text(track.album)
                                                                 .font(.system(size: 12))
-                                                                .foregroundColor(Color.white.opacity(0.4))
+                                                                .foregroundColor(UniformDesign.textMuted)
                                                                 .frame(width: 140, alignment: .leading)
                                                                 .lineLimit(1)
                                                             
                                                             Text(formatTime(track.duration))
                                                                 .font(.system(size: 12, design: .monospaced))
-                                                                .foregroundColor(Color.white.opacity(0.4))
+                                                                .foregroundColor(UniformDesign.textMuted)
                                                             
                                                             Button(action: { engine.loadAndPlay(track: track) }) {
                                                                 Image(systemName: isSelected && engine.isPlaying ? "pause.fill" : "play.fill")
                                                                     .font(.system(size: 12))
-                                                                    .foregroundColor(.white)
+                                                                    .foregroundColor(UniformDesign.textPrimary)
                                                                     .padding(6)
                                                             }
                                                             .buttonStyle(PlainButtonStyle())
@@ -1136,7 +1171,7 @@ struct ContentView: View {
                                                         .padding(.vertical, 6)
                                                         .background(
                                                             RoundedRectangle(cornerRadius: 8)
-                                                                .fill(isSelected ? Color.white.opacity(0.12) : (isHovered ? Color.white.opacity(0.05) : Color.clear))
+                                                                .fill(isSelected ? UniformDesign.activeHighlight : (isHovered ? UniformDesign.hoverHighlight : Color.clear))
                                                         )
                                                         .onHover { hovering in
                                                             engine.hoveredTrackId = hovering ? track.id : nil
@@ -1154,14 +1189,14 @@ struct ContentView: View {
                             // MARK: Bottom Player Bar
                             VStack(spacing: 8) {
                                 Rectangle()
-                                    .fill(Color.white.opacity(0.06))
+                                    .fill(UniformDesign.borderSubtle)
                                     .frame(height: 1)
                                 
                                 // Scrubbing Progress Bar
                                 HStack(spacing: 10) {
                                     Text(formatTime(engine.currentTime))
                                         .font(.system(size: 11, design: .monospaced))
-                                        .foregroundColor(Color.white.opacity(0.4))
+                                        .foregroundColor(UniformDesign.textMuted)
                                     
                                     Slider(value: Binding(
                                         get: { engine.currentTime },
@@ -1171,7 +1206,7 @@ struct ContentView: View {
                                     
                                     Text(formatTime(engine.duration))
                                         .font(.system(size: 11, design: .monospaced))
-                                        .foregroundColor(Color.white.opacity(0.4))
+                                        .foregroundColor(UniformDesign.textMuted)
                                 }
                                 .padding(.horizontal, 20)
                                 
@@ -1184,11 +1219,11 @@ struct ContentView: View {
                                         VStack(alignment: .leading, spacing: 2) {
                                             Text(engine.currentTrack?.title ?? "No Song Playing")
                                                 .font(.system(size: 13, weight: .semibold))
-                                                .foregroundColor(.white)
+                                                .foregroundColor(UniformDesign.textPrimary)
                                                 .lineLimit(1)
                                             Text(engine.currentTrack?.artist ?? "Select a track")
                                                 .font(.system(size: 11))
-                                                .foregroundColor(Color.white.opacity(0.5))
+                                                .foregroundColor(UniformDesign.textSecondary)
                                                 .lineLimit(1)
                                         }
                                     }
@@ -1224,7 +1259,7 @@ struct ContentView: View {
                                     // Volume Slider
                                     HStack(spacing: 8) {
                                         Image(systemName: engine.volume == 0 ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                                            .foregroundColor(Color.white.opacity(0.5))
+                                            .foregroundColor(UniformDesign.textMuted)
                                             .font(.system(size: 12))
                                         
                                         Slider(value: $engine.volume, in: 0...1)
@@ -1236,7 +1271,7 @@ struct ContentView: View {
                                 .padding(.horizontal, 20)
                                 .padding(.bottom, 10)
                             }
-                            .background(Color(red: 0.11, green: 0.11, blue: 0.12))
+                            .background(UniformDesign.bgBottomBar)
                         }
                     }
                 }
