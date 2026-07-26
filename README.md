@@ -5,12 +5,6 @@
 > [!WARNING]
 > **Development Status**: San is currently under active development and may be unstable. Features, behavior, and build specifications are subject to rapid change.
 
-![macOS 13+](https://img.shields.io/badge/macOS-13.0%2B-black?style=flat-square)
-![Swift 6](https://img.shields.io/badge/Swift-6.0-orange?style=flat-square)
-![Size](https://img.shields.io/badge/App_Size-~360_KB-emerald?style=flat-square)
-![Status](https://img.shields.io/badge/Status-In_Development-yellow?style=flat-square)
-![Offline](https://img.shields.io/badge/Offline-100%25-blue?style=flat-square)
-
 ---
 
 ## Features
