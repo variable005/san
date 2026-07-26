@@ -7,7 +7,7 @@
 
 ![macOS 13+](https://img.shields.io/badge/macOS-13.0%2B-black?style=flat-square)
 ![Swift 6](https://img.shields.io/badge/Swift-6.0-orange?style=flat-square)
-![Size](https://img.shields.io/badge/App_Size-~350_KB-emerald?style=flat-square)
+![Size](https://img.shields.io/badge/App_Size-~360_KB-emerald?style=flat-square)
 ![Status](https://img.shields.io/badge/Status-In_Development-yellow?style=flat-square)
 ![Offline](https://img.shields.io/badge/Offline-100%25-blue?style=flat-square)
 
@@ -15,7 +15,9 @@
 
 ## Features
 
-- **Ultra Lightweight (~350 KB)**: Built directly with native macOS frameworks (`SwiftUI`, `AppKit`, `AVFoundation`, `MediaPlayer`). Launches instantly in under 0.1 seconds with low memory footprint.
+- **Ultra Lightweight (~360 KB)**: Built directly with native macOS frameworks (`SwiftUI`, `AppKit`, `AVFoundation`, `MediaPlayer`). Launches instantly in under 0.1 seconds with low memory footprint.
+- **Hi-Res Audio Info Badge**: Displays real-time audio file specifications (sample rate, bit depth, format, bitrate e.g., `FLAC • 96.0kHz • 1411 kbps`).
+- **Custom Accent Color Themes**: Choose from 5 minimalist accent highlight themes (*Minimalist White*, *Emerald*, *Sapphire*, *Crimson*, *Amber*) via the Settings tab.
 - **Compact Mini-Player Mode**: Toggle a stay-on-top floating desktop widget.
 - **Graphic Equalizer (EQ)**: 5-band frequency controls (60Hz, 230Hz, 910Hz, 3.6kHz, 14kHz) with presets (*Flat*, *Bass Boost*, *Treble Boost*, *Vocal*, *Electronic*).
 - **Favorites System**: One-click heart toggle button to star tracks and filter dedicated favorite playlists.
@@ -23,7 +25,7 @@
 - **Mac Media Keys and Hotkeys (`MPRemoteCommandCenter`)**: Hardware play/pause, next track, and previous track media key support on Mac keyboards.
 - **macOS Control Center and Lock Screen Sync (`MPNowPlayingInfoCenter`)**: Live track title, artist name, album artwork, and progress bar synchronization in macOS Control Center and Lock Screen.
 - **Drag and Drop File and Folder Import**: Drag `.mp3`, `.wav`, `.flac`, `.m4a`, or entire music folders directly from Finder into the application window to play instantly.
-- **Persistent Library Storage**: Saves imported track paths to `~/Library/Application Support/San/library.json` so playlists persist across application restarts.
+- **Persistent Library Storage**: Saves imported track paths to `~/Library/Application Support/San/library.json` so playlists and accent settings persist across application restarts.
 - **Modern Dark Minimalist UI**: Matte dark background (`#141417`), 1px borders, high-contrast monochrome transport controls, and square artwork stage.
 - **Real-Time Audio Visualizer**: Animated 16-band spectrum equalizer reflecting live audio output.
 - **100% Offline and Private**: Zero network dependencies, zero tracking, zero login. Operates completely offline on local hardware.

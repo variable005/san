@@ -4,8 +4,29 @@ import AVFoundation
 import MediaPlayer
 import Combine
 import UniformTypeIdentifiers
+import CoreMedia
 
 // MARK: - Data Models
+
+enum AccentTheme: String, CaseIterable, Identifiable, Codable {
+    case white = "Minimalist White"
+    case emerald = "Emerald"
+    case sapphire = "Sapphire"
+    case crimson = "Crimson"
+    case amber = "Amber"
+    
+    var id: String { self.rawValue }
+    
+    var color: Color {
+        switch self {
+        case .white: return Color.white
+        case .emerald: return Color(red: 0.16, green: 0.80, blue: 0.50)
+        case .sapphire: return Color(red: 0.25, green: 0.55, blue: 0.95)
+        case .crimson: return Color(red: 0.92, green: 0.25, blue: 0.35)
+        case .amber: return Color(red: 0.95, green: 0.65, blue: 0.20)
+        }
+    }
+}
 
 struct Track: Identifiable, Equatable {
     let id = UUID()
@@ -15,6 +36,19 @@ struct Track: Identifiable, Equatable {
     let album: String
     let duration: TimeInterval
     let artwork: NSImage?
+    let formatName: String
+    let sampleRate: Double
+    let bitrate: Int
+    let channelCount: Int
+    
+    var audioBadgeText: String {
+        let sr = sampleRate > 0 ? String(format: "%.1fkHz", sampleRate / 1000.0) : "44.1kHz"
+        if bitrate > 0 {
+            return "\(formatName) • \(sr) • \(bitrate) kbps"
+        } else {
+            return "\(formatName) • \(sr)"
+        }
+    }
     
     static func == (lhs: Track, rhs: Track) -> Bool {
         return lhs.id == rhs.id
@@ -47,6 +81,7 @@ struct SavedLibraryData: Codable {
     var filePaths: [String]
     var favoritePaths: [String]?
     var eqGains: [Float]?
+    var accentTheme: AccentTheme?
 }
 
 enum EQPreset: String, CaseIterable, Identifiable {
@@ -93,6 +128,9 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var isShuffled: Bool = false
     @Published var isRepeated: Bool = false
     @Published var visualizerLevels: [CGFloat] = Array(repeating: 0.15, count: 16)
+    
+    // Theme Accent State
+    @Published var currentAccent: AccentTheme = .white
     
     // Equalizer State (5 Bands: 60Hz, 230Hz, 910Hz, 3.6kHz, 14kHz)
     @Published var selectedEQPreset: EQPreset = .flat
@@ -285,7 +323,12 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
         saveLibrary()
     }
     
-    // MARK: - Equalizer Controls
+    // MARK: - Equalizer & Theme Controls
+    
+    func setAccentTheme(_ theme: AccentTheme) {
+        currentAccent = theme
+        saveLibrary()
+    }
     
     func applyEQPreset(_ preset: EQPreset) {
         selectedEQPreset = preset
@@ -365,7 +408,7 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
         activeLyricIndex = foundIndex
     }
     
-    // MARK: - File Import & Drag and Drop
+    // MARK: - File Import & Metadata Extraction
     
     func handleDroppedURLs(_ urls: [URL]) {
         var newTracks: [Track] = []
@@ -431,8 +474,34 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
         var album = "Unknown Album"
         var artworkImage: NSImage?
         
+        var formatName = url.pathExtension.uppercased()
+        var sampleRate: Double = 44100
+        var bitrate: Int = 320
+        var channelCount: Int = 2
+        
         let seconds = CMTimeGetSeconds(asset.duration)
         let trackDuration = seconds.isNaN || seconds <= 0 ? 180.0 : seconds
+        
+        // Inspect Audio Stream Details
+        let audioTracks = asset.tracks(withMediaType: .audio)
+        if let audioTrack = audioTracks.first {
+            let rate = audioTrack.estimatedDataRate
+            if rate > 0 {
+                bitrate = Int(rate / 1000.0)
+            }
+            
+            for desc in audioTrack.formatDescriptions {
+                let formatDesc = desc as! CMAudioFormatDescription
+                if let basicDesc = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc) {
+                    if basicDesc.pointee.mSampleRate > 0 {
+                        sampleRate = basicDesc.pointee.mSampleRate
+                    }
+                    if basicDesc.pointee.mChannelsPerFrame > 0 {
+                        channelCount = Int(basicDesc.pointee.mChannelsPerFrame)
+                    }
+                }
+            }
+        }
         
         let formats = asset.availableMetadataFormats
         for format in formats {
@@ -456,7 +525,18 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
             }
         }
         
-        return Track(url: url, title: title, artist: artist, album: album, duration: trackDuration, artwork: artworkImage)
+        return Track(
+            url: url,
+            title: title,
+            artist: artist,
+            album: album,
+            duration: trackDuration,
+            artwork: artworkImage,
+            formatName: formatName,
+            sampleRate: sampleRate,
+            bitrate: bitrate,
+            channelCount: channelCount
+        )
     }
     
     // MARK: - Mini Player Toggle
@@ -486,7 +566,12 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
     
     func saveLibrary() {
         let paths = playlist.map { $0.url.path }
-        let savedData = SavedLibraryData(filePaths: paths, favoritePaths: Array(favoritePaths), eqGains: eqGains)
+        let savedData = SavedLibraryData(
+            filePaths: paths,
+            favoritePaths: Array(favoritePaths),
+            eqGains: eqGains,
+            accentTheme: currentAccent
+        )
         do {
             let json = try JSONEncoder().encode(savedData)
             try json.write(to: libraryStorageURL)
@@ -502,6 +587,9 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
             let data = try Data(contentsOf: url)
             let savedData = try JSONDecoder().decode(SavedLibraryData.self, from: data)
             
+            if let theme = savedData.accentTheme {
+                self.currentAccent = theme
+            }
             if let favs = savedData.favoritePaths {
                 self.favoritePaths = Set(favs)
             }
@@ -621,22 +709,22 @@ struct ModernButton: View {
             ZStack {
                 if isPrimary {
                     Circle()
-                        .fill(Color.white)
+                        .fill(engine.currentAccent.color)
                         .frame(width: size, height: size)
                     Image(systemName: icon)
                         .font(.system(size: iconSize, weight: .bold))
-                        .foregroundColor(.black)
+                        .foregroundColor(engine.currentAccent == .white ? .black : .white)
                 } else {
                     Circle()
-                        .fill(active ? UniformDesign.activeHighlight : (isHovered ? UniformDesign.hoverHighlight : Color.white.opacity(0.04)))
+                        .fill(active ? engine.currentAccent.color.opacity(0.25) : (isHovered ? Color.white.opacity(0.1) : Color.white.opacity(0.04)))
                         .frame(width: size, height: size)
                         .overlay(
                             Circle()
-                                .stroke(UniformDesign.borderSubtle, lineWidth: 1)
+                                .stroke(active ? engine.currentAccent.color.opacity(0.5) : UniformDesign.borderSubtle, lineWidth: 1)
                         )
                     Image(systemName: icon)
                         .font(.system(size: iconSize, weight: .medium))
-                        .foregroundColor(active ? .white : UniformDesign.textSecondary)
+                        .foregroundColor(active ? engine.currentAccent.color : UniformDesign.textSecondary)
                 }
             }
             .scaleEffect(isHovered ? 1.05 : 1.0)
@@ -680,12 +768,13 @@ struct ArtworkView: View {
 
 struct ModernVisualizerView: View {
     let levels: [CGFloat]
+    let accentColor: Color
     
     var body: some View {
         HStack(spacing: 4) {
             ForEach(0..<levels.count, id: \.self) { index in
                 RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.white.opacity(0.85))
+                    .fill(accentColor.opacity(0.85))
                     .frame(width: 4, height: max(4, levels[index] * 32))
                     .animation(.easeInOut(duration: 0.1), value: levels[index])
             }
@@ -729,7 +818,7 @@ struct MiniPlayerView: View {
                         Button(action: { engine.togglePlay() }) {
                             Image(systemName: engine.isPlaying ? "pause.fill" : "play.fill")
                                 .font(.system(size: 14, weight: .bold))
-                                .foregroundColor(UniformDesign.textPrimary)
+                                .foregroundColor(engine.currentAccent.color)
                         }.buttonStyle(PlainButtonStyle())
                         
                         Button(action: { engine.nextTrack() }) {
@@ -777,7 +866,7 @@ struct EqualizerView: View {
                             .padding(.vertical, 6)
                             .background(
                                 Capsule()
-                                    .fill(engine.selectedEQPreset == preset ? Color.white : Color.white.opacity(0.08))
+                                    .fill(engine.selectedEQPreset == preset ? engine.currentAccent.color : Color.white.opacity(0.08))
                             )
                     }
                     .buttonStyle(PlainButtonStyle())
@@ -800,7 +889,7 @@ struct EqualizerView: View {
                                     engine.saveLibrary()
                                 }
                             ), in: -12...12)
-                            .accentColor(.white)
+                            .accentColor(engine.currentAccent.color)
                             .rotationEffect(.degrees(-90))
                             .frame(width: 140, height: 40)
                             
@@ -812,6 +901,104 @@ struct EqualizerView: View {
                 }
                 .padding(32)
                 .frame(maxWidth: .infinity)
+            }
+        }
+        .padding(.horizontal, 24)
+    }
+}
+
+// MARK: - Settings View Component
+
+struct SettingsView: View {
+    @ObservedObject var engine: AudioEngine
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            Text("Settings & Customization")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundColor(UniformDesign.textPrimary)
+            
+            // Accent Color Picker Section
+            ModernCard(cornerRadius: 14) {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Accent Color Theme")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(UniformDesign.textPrimary)
+                    
+                    Text("Select your preferred UI highlight accent color:")
+                        .font(.system(size: 12))
+                        .foregroundColor(UniformDesign.textSecondary)
+                    
+                    HStack(spacing: 16) {
+                        ForEach(AccentTheme.allCases) { theme in
+                            Button(action: { engine.setAccentTheme(theme) }) {
+                                HStack(spacing: 8) {
+                                    Circle()
+                                        .fill(theme.color)
+                                        .frame(width: 16, height: 16)
+                                        .overlay(Circle().stroke(Color.white.opacity(0.4), lineWidth: 1))
+                                    
+                                    Text(theme.rawValue)
+                                        .font(.system(size: 12, weight: engine.currentAccent == theme ? .bold : .regular))
+                                        .foregroundColor(engine.currentAccent == theme ? .white : UniformDesign.textSecondary)
+                                }
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(engine.currentAccent == theme ? UniformDesign.activeHighlight : Color.white.opacity(0.04))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(engine.currentAccent == theme ? theme.color : UniformDesign.borderSubtle, lineWidth: 1)
+                                )
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                    }
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            
+            // About & System Engine Info
+            ModernCard(cornerRadius: 14) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("System Information")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(UniformDesign.textPrimary)
+                    
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("Audio Engine:")
+                                .foregroundColor(UniformDesign.textSecondary)
+                            Spacer()
+                            Text("Apple AVFoundation (Hardware Decoded)")
+                                .foregroundColor(.white)
+                        }
+                        Divider().background(UniformDesign.borderSubtle)
+                        
+                        HStack {
+                            Text("Architecture:")
+                                .foregroundColor(UniformDesign.textSecondary)
+                            Spacer()
+                            Text("Native Apple Silicon (ARM64)")
+                                .foregroundColor(.white)
+                        }
+                        Divider().background(UniformDesign.borderSubtle)
+                        
+                        HStack {
+                            Text("Supported Formats:")
+                                .foregroundColor(UniformDesign.textSecondary)
+                            Spacer()
+                            Text("FLAC, WAV, MP3, AAC, M4A")
+                                .foregroundColor(.white)
+                        }
+                    }
+                    .font(.system(size: 12, design: .monospaced))
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .padding(.horizontal, 24)
@@ -858,7 +1045,7 @@ struct ContentView: View {
                             HStack(spacing: 12) {
                                 Image(systemName: "music.note.house.fill")
                                     .font(.system(size: 18, weight: .bold))
-                                    .foregroundColor(UniformDesign.textPrimary)
+                                    .foregroundColor(engine.currentAccent.color)
                                 
                                 Text("SAN")
                                     .font(.system(size: 18, weight: .bold))
@@ -874,7 +1061,7 @@ struct ContentView: View {
                                         HStack(spacing: 12) {
                                             Image(systemName: item.iconName)
                                                 .font(.system(size: 15, weight: .medium))
-                                                .foregroundColor(engine.selectedNav == item ? .white : UniformDesign.textMuted)
+                                                .foregroundColor(engine.selectedNav == item ? engine.currentAccent.color : UniformDesign.textMuted)
                                             Text(item.rawValue)
                                                 .font(.system(size: 13, weight: engine.selectedNav == item ? .semibold : .medium))
                                                 .foregroundColor(engine.selectedNav == item ? .white : UniformDesign.textSecondary)
@@ -975,9 +1162,11 @@ struct ContentView: View {
                                 VStack(spacing: 24) {
                                     if engine.selectedNav == .equalizer {
                                         EqualizerView(engine: engine)
+                                    } else if engine.selectedNav == .settings {
+                                        SettingsView(engine: engine)
                                     } else {
                                         if engine.selectedNav == .nowPlaying || engine.playlist.isEmpty {
-                                            // Now Playing Stage with Lyrics & Lyrics Toggle Button
+                                            // Now Playing Stage with Hi-Res Badge & Lyrics Toggle
                                             ModernCard(cornerRadius: 14) {
                                                 if let track = engine.currentTrack {
                                                     HStack(alignment: .top, spacing: 28) {
@@ -1003,9 +1192,9 @@ struct ContentView: View {
                                                                 Button(action: { engine.showLyrics.toggle() }) {
                                                                     Image(systemName: engine.showLyrics ? "text.quote" : "text.alignleft")
                                                                         .font(.system(size: 14, weight: .medium))
-                                                                        .foregroundColor(engine.showLyrics ? .white : UniformDesign.textMuted)
+                                                                        .foregroundColor(engine.showLyrics ? engine.currentAccent.color : UniformDesign.textMuted)
                                                                         .padding(6)
-                                                                        .background(Circle().fill(engine.showLyrics ? Color.white.opacity(0.15) : Color.clear))
+                                                                        .background(Circle().fill(engine.showLyrics ? engine.currentAccent.color.opacity(0.15) : Color.clear))
                                                                 }
                                                                 .buttonStyle(PlainButtonStyle())
                                                                 
@@ -1019,11 +1208,21 @@ struct ContentView: View {
                                                                 .buttonStyle(PlainButtonStyle())
                                                             }
                                                             
-                                                            ModernVisualizerView(levels: engine.visualizerLevels)
+                                                            // Hi-Res Audio Info Badge
+                                                            Text(track.audioBadgeText)
+                                                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                                                .foregroundColor(engine.currentAccent.color)
+                                                                .padding(.horizontal, 8)
+                                                                .padding(.vertical, 4)
+                                                                .background(
+                                                                    Capsule().fill(engine.currentAccent.color.opacity(0.12))
+                                                                )
+                                                            
+                                                            ModernVisualizerView(levels: engine.visualizerLevels, accentColor: engine.currentAccent.color)
                                                         }
                                                         .frame(width: engine.showLyrics ? 220 : .infinity, alignment: .leading)
                                                         
-                                                        // Synced Lyrics Display Panel (Toggable)
+                                                        // Synced Lyrics Display Panel
                                                         if engine.showLyrics {
                                                             VStack(alignment: .leading, spacing: 10) {
                                                                 HStack {
@@ -1050,7 +1249,7 @@ struct ContentView: View {
                                                                                     let isActive = engine.activeLyricIndex == idx
                                                                                     Text(line.text)
                                                                                         .font(.system(size: isActive ? 15 : 13, weight: isActive ? .bold : .regular))
-                                                                                        .foregroundColor(isActive ? .white : UniformDesign.textMuted)
+                                                                                        .foregroundColor(isActive ? engine.currentAccent.color : UniformDesign.textMuted)
                                                                                         .id(idx)
                                                                                 }
                                                                             }
@@ -1132,7 +1331,7 @@ struct ContentView: View {
                                                             VStack(alignment: .leading, spacing: 2) {
                                                                 Text(track.title)
                                                                     .font(.system(size: 13, weight: .medium))
-                                                                    .foregroundColor(isSelected ? .white : UniformDesign.textPrimary)
+                                                                    .foregroundColor(isSelected ? engine.currentAccent.color : UniformDesign.textPrimary)
                                                                     .lineLimit(1)
                                                                 Text(track.artist)
                                                                     .font(.system(size: 11))
@@ -1202,7 +1401,7 @@ struct ContentView: View {
                                         get: { engine.currentTime },
                                         set: { engine.seek(to: $0) }
                                     ), in: 0...max(1, engine.duration))
-                                    .accentColor(.white)
+                                    .accentColor(engine.currentAccent.color)
                                     
                                     Text(formatTime(engine.duration))
                                         .font(.system(size: 11, design: .monospaced))
@@ -1212,7 +1411,7 @@ struct ContentView: View {
                                 
                                 // Transport Controls
                                 HStack(spacing: 20) {
-                                    // Current Song Info
+                                    // Current Song Info & Hi-Res Badge Preview
                                     HStack(spacing: 10) {
                                         ArtworkView(artwork: engine.currentTrack?.artwork, size: 36)
                                         
@@ -1221,10 +1420,18 @@ struct ContentView: View {
                                                 .font(.system(size: 13, weight: .semibold))
                                                 .foregroundColor(UniformDesign.textPrimary)
                                                 .lineLimit(1)
-                                            Text(engine.currentTrack?.artist ?? "Select a track")
-                                                .font(.system(size: 11))
-                                                .foregroundColor(UniformDesign.textSecondary)
-                                                .lineLimit(1)
+                                            
+                                            if let track = engine.currentTrack {
+                                                Text(track.audioBadgeText)
+                                                    .font(.system(size: 10, design: .monospaced))
+                                                    .foregroundColor(engine.currentAccent.color)
+                                                    .lineLimit(1)
+                                            } else {
+                                                Text("Select a track")
+                                                    .font(.system(size: 11))
+                                                    .foregroundColor(UniformDesign.textSecondary)
+                                                    .lineLimit(1)
+                                            }
                                         }
                                     }
                                     .frame(width: 220, alignment: .leading)
@@ -1263,7 +1470,7 @@ struct ContentView: View {
                                             .font(.system(size: 12))
                                         
                                         Slider(value: $engine.volume, in: 0...1)
-                                            .accentColor(.white)
+                                            .accentColor(engine.currentAccent.color)
                                             .frame(width: 85)
                                     }
                                     .frame(width: 200, alignment: .trailing)
@@ -1278,7 +1485,7 @@ struct ContentView: View {
                 .frame(minWidth: 960, minHeight: 640)
                 .overlay(
                     RoundedRectangle(cornerRadius: 0)
-                        .stroke(engine.isDropTargeted ? Color.white.opacity(0.6) : Color.clear, lineWidth: 3)
+                        .stroke(engine.isDropTargeted ? engine.currentAccent.color.opacity(0.6) : Color.clear, lineWidth: 3)
                 )
                 .onDrop(of: [.fileURL], isTargeted: $engine.isDropTargeted) { providers in
                     var urls: [URL] = []
