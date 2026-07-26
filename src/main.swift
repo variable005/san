@@ -998,7 +998,7 @@ struct TrackInspectorView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             HStack {
-                Text("Track Inspector (100% Offline)")
+                Text("Track Inspector")
                     .font(.system(size: 16, weight: .bold))
                     .foregroundColor(.white)
                 Spacer()
@@ -1254,7 +1254,7 @@ struct FolderModeView: View {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Folder Mode (100% Offline)")
+                    Text("Folder Mode")
                         .font(.system(size: 18, weight: .bold))
                         .foregroundColor(UniformDesign.textPrimary)
                     
@@ -1481,10 +1481,10 @@ struct SettingsView: View {
                         Divider().background(UniformDesign.borderSubtle)
                         
                         HStack {
-                            Text("Network Status:")
+                            Text("Engine Status:")
                                 .foregroundColor(UniformDesign.textSecondary)
                             Spacer()
-                            Text("100% Offline (No Telemetry)")
+                            Text("Active (Local)")
                                 .foregroundColor(engine.currentAccent.color)
                         }
                         Divider().background(UniformDesign.borderSubtle)
@@ -2004,9 +2004,9 @@ struct ContentView: View {
                                 
                                 // Transport Controls
                                 HStack(spacing: 20) {
-                                    // Current Song Info & Hi-Res Badge Preview
+                                    // Current Song Info & Hi-Res Badge Preview (Click to open Now Playing with animation)
                                     HStack(spacing: 10) {
-                                        ArtworkView(artwork: engine.currentTrack?.artwork, size: 36)
+                                        ArtworkView(artwork: engine.currentTrack?.artwork, size: 36, isPlaying: engine.isPlaying, accentColor: engine.currentAccent.color)
                                         
                                         VStack(alignment: .leading, spacing: 2) {
                                             Text(engine.currentTrack?.title ?? "No Song Playing")
@@ -2028,6 +2028,12 @@ struct ContentView: View {
                                         }
                                     }
                                     .frame(width: 220, alignment: .leading)
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+                                            engine.selectedNav = .nowPlaying
+                                        }
+                                    }
                                     
                                     Spacer()
                                     
