@@ -2400,15 +2400,9 @@ struct ContentView: View {
                         // MARK: Sidebar Navigation
                         VStack(alignment: .leading, spacing: 24) {
                             // App Brand Header
-                            HStack(spacing: 12) {
-                                Image(systemName: "music.note.house.fill")
-                                    .font(.system(size: 18, weight: .bold))
-                                    .foregroundColor(engine.activeAccentColor)
-                                
-                                Text("SAN")
-                                    .font(.system(size: 18, weight: .bold))
-                                    .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
-                            }
+                            Text("SAN")
+                                .font(.system(size: 18, weight: .bold))
+                                .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                             .padding(.horizontal, 20)
                             .padding(.top, 24)
                             
