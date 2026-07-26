@@ -15,8 +15,8 @@
 
 ## Features
 
-- **Ultra Lightweight (~340 KB)**: Built directly with Apple native frameworks (`SwiftUI`, `AppKit`, `AVFoundation`, `MediaPlayer`). Launches instantly in under 0.1 seconds with low memory footprint.
-- **Mac Media Keys and Hotkeys (`MPRemoteCommandCenter`)**: Hardware play/pause, next track, and previous track media key support on Apple keyboards.
+- **Ultra Lightweight (~340 KB)**: Built directly with native macOS frameworks (`SwiftUI`, `AppKit`, `AVFoundation`, `MediaPlayer`). Launches instantly in under 0.1 seconds with low memory footprint.
+- **Mac Media Keys and Hotkeys (`MPRemoteCommandCenter`)**: Hardware play/pause, next track, and previous track media key support on Mac keyboards.
 - **macOS Control Center and Lock Screen Sync (`MPNowPlayingInfoCenter`)**: Live track title, artist name, album artwork, and progress bar synchronization in macOS Control Center and Lock Screen.
 - **Drag and Drop File and Folder Import**: Drag `.mp3`, `.wav`, `.flac`, `.m4a`, or entire music folders directly from Finder into the application window to play instantly.
 - **Persistent Library Storage**: Saves imported track paths to `~/Library/Application Support/San/library.json` so playlists persist across application restarts.
