@@ -78,4 +78,6 @@ san/
 
 ## License
 
-MIT License © 2026 San
+Copyright (c) 2026 variable005. All Rights Reserved.
+
+This repository and its source code are proprietary. No open-source license is granted. Nobody may copy, modify, distribute, or create derivative works from this software without explicit permission from the copyright holder.
