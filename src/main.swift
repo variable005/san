@@ -192,6 +192,16 @@ enum PlayerAnimationOption: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+enum VisualizerBarStyle: String, CaseIterable, Identifiable, Codable {
+    case verticalBars = "Vertical Bars"
+    case sineWaveform = "Continuous Waveform"
+    case glowingDots = "Pulsing Dots Matrix"
+    case floatingParticles = "Audio Particles"
+    case minimalPills = "Minimal Pill Meters"
+    
+    var id: String { self.rawValue }
+}
+
 struct SavedLibraryData: Codable {
     var filePaths: [String]
     var favoritePaths: [String]?
@@ -200,6 +210,7 @@ struct SavedLibraryData: Codable {
     var appearanceMode: AppearanceMode?
     var useDynamicArtworkTheme: Bool?
     var playerAnimation: PlayerAnimationOption?
+    var visualizerBarStyle: VisualizerBarStyle?
     var userPlaylists: [UserPlaylist]?
     var lastFolderURL: String?
     var windowFrame: [CGFloat]?
@@ -276,6 +287,7 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var appearanceMode: AppearanceMode = .dark
     @Published var useDynamicArtworkTheme: Bool = true
     @Published var playerAnimation: PlayerAnimationOption = .smoothSpring
+    @Published var visualizerBarStyle: VisualizerBarStyle = .verticalBars
     
     // Folder Mode State
     @Published var selectedFolderURL: URL? = nil
@@ -1183,6 +1195,7 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
             appearanceMode: appearanceMode,
             useDynamicArtworkTheme: useDynamicArtworkTheme,
             playerAnimation: playerAnimation,
+            visualizerBarStyle: visualizerBarStyle,
             userPlaylists: userPlaylists,
             lastFolderURL: selectedFolderURL?.path,
             sidebarWidth: sidebarWidth,
@@ -1215,6 +1228,9 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
             }
             if let anim = savedData.playerAnimation {
                 self.playerAnimation = anim
+            }
+            if let visStyle = savedData.visualizerBarStyle {
+                self.visualizerBarStyle = visStyle
             }
             if let favs = savedData.favoritePaths {
                 self.favoritePaths = Set(favs)
@@ -1648,14 +1664,95 @@ struct ArtworkView: View {
 struct ModernVisualizerView: View {
     let levels: [CGFloat]
     let accentColor: Color
+    var style: VisualizerBarStyle = .verticalBars
     
     var body: some View {
-        HStack(spacing: 4) {
-            ForEach(0..<levels.count, id: \.self) { index in
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(accentColor.opacity(0.85))
-                    .frame(width: 4, height: max(4, levels[index] * 32))
-                    .animation(.easeInOut(duration: 0.1), value: levels[index])
+        Group {
+            switch style {
+            case .verticalBars:
+                HStack(spacing: 4) {
+                    ForEach(0..<levels.count, id: \.self) { index in
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(
+                                LinearGradient(
+                                    gradient: Gradient(colors: [accentColor, accentColor.opacity(0.6)]),
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            )
+                            .frame(width: 4, height: max(4, levels[index] * 32))
+                            .animation(.easeInOut(duration: 0.08), value: levels[index])
+                    }
+                }
+                
+            case .sineWaveform:
+                GeometryReader { geo in
+                    Path { path in
+                        let width = geo.size.width
+                        let height = geo.size.height
+                        let midY = height / 2.0
+                        let step = width / CGFloat(max(1, levels.count - 1))
+                        
+                        path.move(to: CGPoint(x: 0, y: midY))
+                        for i in 0..<levels.count {
+                            let x = CGFloat(i) * step
+                            let dy = (levels[i] - 0.15) * (height * 0.8)
+                            let y = (i % 2 == 0) ? midY - dy : midY + dy
+                            path.addLine(to: CGPoint(x: x, y: y))
+                        }
+                    }
+                    .stroke(accentColor, style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+                    .shadow(color: accentColor.opacity(0.6), radius: 4)
+                }
+                .frame(width: 140, height: 32)
+                
+            case .glowingDots:
+                HStack(spacing: 5) {
+                    ForEach(0..<min(12, levels.count), id: \.self) { col in
+                        VStack(spacing: 3) {
+                            ForEach((0..<5).reversed(), id: \.self) { row in
+                                let threshold = CGFloat(row + 1) / 5.0
+                                let isLit = levels[col] >= threshold
+                                Circle()
+                                    .fill(isLit ? accentColor : Color.white.opacity(0.1))
+                                    .frame(width: 5, height: 5)
+                                    .shadow(color: isLit ? accentColor.opacity(0.8) : Color.clear, radius: 2)
+                            }
+                        }
+                    }
+                }
+                
+            case .floatingParticles:
+                HStack(spacing: 6) {
+                    ForEach(0..<min(10, levels.count), id: \.self) { index in
+                        VStack {
+                            Spacer()
+                            Circle()
+                                .fill(accentColor)
+                                .frame(width: 6, height: 6)
+                                .shadow(color: accentColor.opacity(0.8), radius: 4)
+                                .offset(y: -levels[index] * 24)
+                                .animation(.spring(response: 0.2, dampingFraction: 0.5), value: levels[index])
+                        }
+                        .frame(height: 32)
+                    }
+                }
+                
+            case .minimalPills:
+                HStack(spacing: 8) {
+                    let avgLeft = levels.prefix(8).reduce(0, +) / 8.0
+                    let avgRight = levels.suffix(8).reduce(0, +) / 8.0
+                    
+                    Capsule()
+                        .fill(accentColor)
+                        .frame(width: max(8, avgLeft * 60), height: 6)
+                        .animation(.easeInOut(duration: 0.08), value: avgLeft)
+                    
+                    Capsule()
+                        .fill(accentColor.opacity(0.7))
+                        .frame(width: max(8, avgRight * 60), height: 6)
+                        .animation(.easeInOut(duration: 0.08), value: avgRight)
+                }
             }
         }
         .frame(height: 36)
@@ -1693,7 +1790,7 @@ struct StatusBarPopoverView: View {
                 Spacer()
             }
             
-            ModernVisualizerView(levels: engine.visualizerLevels, accentColor: engine.activeAccentColor)
+            ModernVisualizerView(levels: engine.visualizerLevels, accentColor: engine.activeAccentColor, style: engine.visualizerBarStyle)
             
             HStack(spacing: 14) {
                 Button(action: { engine.previousTrack() }) {
@@ -2901,6 +2998,72 @@ struct SettingsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             
+            // Audio Spectrum Bar Visualizer Options Section
+            ModernCard(cornerRadius: 14, mode: engine.appearanceMode) {
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Audio Spectrum Bar Visualizer Style")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
+                            
+                            Text("Select how the live audio waveform spectrum bars render on the player stage and popover:")
+                                .font(.system(size: 12))
+                                .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
+                        }
+                        
+                        Spacer()
+                        
+                        // Live Preview Box
+                        ModernVisualizerView(levels: [0.3, 0.7, 0.5, 0.9, 0.4, 0.8, 0.6, 0.3], accentColor: engine.activeAccentColor, style: engine.visualizerBarStyle)
+                    }
+                    
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
+                        ForEach(VisualizerBarStyle.allCases) { style in
+                            let iconName: String = {
+                                switch style {
+                                case .verticalBars: return "chart.bar.fill"
+                                case .sineWaveform: return "waveform.path"
+                                case .glowingDots: return "circle.grid.3x3.fill"
+                                case .floatingParticles: return "sparkles"
+                                case .minimalPills: return "slider.horizontal.3"
+                                }
+                            }()
+                            
+                            Button(action: {
+                                withAnimation(.spring()) {
+                                    engine.visualizerBarStyle = style
+                                    engine.saveLibrary()
+                                }
+                            }) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: iconName)
+                                        .font(.system(size: 12))
+                                    Text(style.rawValue)
+                                        .font(.system(size: 11, weight: engine.visualizerBarStyle == style ? .bold : .medium))
+                                        .lineLimit(1)
+                                }
+                                .foregroundColor(engine.visualizerBarStyle == style ? .black : UniformDesign.textPrimary(mode: engine.appearanceMode))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(engine.visualizerBarStyle == style ? engine.activeAccentColor : UniformDesign.hoverHighlight(mode: engine.appearanceMode))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(engine.visualizerBarStyle == style ? engine.activeAccentColor : UniformDesign.borderSubtle(mode: engine.appearanceMode), lineWidth: 1)
+                                )
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                    }
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            
             // Accent Color Picker Section
             ModernCard(cornerRadius: 14, mode: engine.appearanceMode) {
                 VStack(alignment: .leading, spacing: 16) {
@@ -3435,7 +3598,7 @@ struct ContentView: View {
                                                                 .buttonStyle(PlainButtonStyle())
                                                             }
                                                             
-                                                            ModernVisualizerView(levels: engine.visualizerLevels, accentColor: engine.activeAccentColor)
+                                                            ModernVisualizerView(levels: engine.visualizerLevels, accentColor: engine.activeAccentColor, style: engine.visualizerBarStyle)
                                                         }
                                                         .frame(minWidth: 260, maxWidth: engine.showLyrics ? 380 : .infinity, alignment: .leading)
                                                         

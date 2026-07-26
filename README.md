@@ -15,20 +15,21 @@ San (Japanese for Three / Harmony) provides a clean, modern interface for listen
 
 ## Features
 
+### Audio Spectrum Bar Visualizer Options
+- **5 Selectable Spectrum Bar Styles**: Choose how the live audio waveform spectrum renders across the player stage, bottom player, and menu bar popover:
+  1. **Vertical Bars**: Classic vertical spectrum bars with level gradients.
+  2. **Continuous Waveform**: Smooth connected sine curve frequency waveform.
+  3. **Pulsing Dots Matrix**: Illuminated dot matrix level meter grid.
+  4. **Audio Particles**: Floating glowing particles bouncing up with the rhythm.
+  5. **Minimal Pill Meters**: Dual horizontal stereo level meters.
+
 ### Artist & Library Auto-Detection
 - **Dedicated Artists Page**: Automatically groups tracks by artist with artist profile banners, total album counts, and total song counts.
 - **Auto-Detected Albums**: Inspecting an artist page auto-detects and categorizes all albums belonging to that specific artist with cover artwork grids.
 - **Play Artist Collection**: One-click action to play all tracks by an artist.
 
-### Audio Visualizer & Motion Animations
-- **7 Player Visualizer & Motion Options**: Selectable presentation options in Settings:
-  1. **Fluid Spring**: Glowing artwork with responsive spring motion.
-  2. **Vinyl Record Spin**: Rotating vinyl record disc with spindle & groove details.
-  3. **Wave Spectrum Ring**: Animated audio frequency spectrum rings pulsing around circular artwork.
-  4. **Floating Glass Card**: 3D tilted glassmorphic card with specular highlights.
-  5. **Neon Aura Glow**: Multi-layered pulsing radial neon aura behind album art.
-  6. **Gentle Ease**: Smooth ease-in-out breathing motion.
-  7. **Snappy Fast**: Instant responsive scaling.
+### Artwork Visualizer & Motion Animations
+- **7 Player Motion Options**: Selectable presentation options in Settings (Fluid Spring, Vinyl Record Spin, Wave Spectrum Ring, Floating Glass Card, Neon Aura Glow, Gentle Ease, Snappy Fast).
 
 ### Audio Engine & Playback
 - **Crossfade Transitions**: Configurable overlap transition durations (Off, 1s, 2s, 3s, 5s) between tracks.
