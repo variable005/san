@@ -2488,6 +2488,44 @@ struct ContentView: View {
                 .sheet(isPresented: $engine.showQueueDrawer) {
                     PlayQueueDrawerSheet(engine: engine)
                 }
+                .onAppear {
+                    NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                        if let responder = NSApp.keyWindow?.firstResponder as? NSTextView, responder.isEditable {
+                            return event
+                        }
+                        
+                        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                        let keyCode = event.keyCode
+                        
+                        if flags.contains(.command) {
+                            switch keyCode {
+                            case 37: // Cmd + L -> Toggle Synced Lyrics
+                                engine.showLyrics.toggle()
+                                return nil
+                            case 46: // Cmd + M -> Toggle Mini Player
+                                engine.toggleMiniPlayer()
+                                return nil
+                            default:
+                                break
+                            }
+                        } else if flags.isEmpty {
+                            switch keyCode {
+                            case 49: // Spacebar -> Toggle Play / Pause
+                                engine.togglePlay()
+                                return nil
+                            case 123: // Left Arrow -> Seek -5s
+                                engine.seek(to: max(0, engine.currentTime - 5.0))
+                                return nil
+                            case 124: // Right Arrow -> Seek +5s
+                                engine.seek(to: min(engine.duration, engine.currentTime + 5.0))
+                                return nil
+                            default:
+                                break
+                            }
+                        }
+                        return event
+                    }
+                }
             }
         }
     }

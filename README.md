@@ -23,6 +23,15 @@
 - **Queue Drawer Panel**: View upcoming queued tracks, remove items, or clear the queue from the bottom player bar (with active queue badge counter).
 - **🎨 Visual Album Grid View**: Browse library tracks grouped into responsive high-resolution album cover cards (`Albums` tab). Click an album to view its tracks or play the entire album.
 
+### Keyboard Shortcuts and Controls
+- **⌨️ In-App Global Keyboard Shortcuts**:
+  - `Spacebar`: Toggle Play / Pause
+  - `Left Arrow` (`←`): Seek backward 5 seconds
+  - `Right Arrow` (`→`): Seek forward 5 seconds
+  - `Cmd + L`: Toggle Synced Lyrics panel
+  - `Cmd + M`: Toggle Mini-Player mode
+- **Mac Media Keys and Hotkeys**: Full hardware play/pause, next track, and previous track media key support on Apple keyboards (`MPRemoteCommandCenter`).
+
 ### Audiophile and Audio Controls
 - **Hi-Res Audio Info Badge**: Displays real-time audio specifications (sample rate, bit depth, format, bitrate e.g., `FLAC • 96.0kHz • 1411 kbps`).
 - **Graphic Equalizer (EQ)**: 5-band frequency control (60Hz, 230Hz, 910Hz, 3.6kHz, 14kHz) with presets (*Flat*, *Bass Boost*, *Treble Boost*, *Vocal*, *Electronic*).
@@ -39,10 +48,9 @@
 - **Persistent Storage**: Saves imported track paths to `~/Library/Application Support/San/library.json` so playlists, last folder path, and theme settings persist across restarts.
 
 ### macOS Integration and Interface
-- **Mac Media Keys and Hotkeys**: Full hardware play/pause, next track, and previous track media key support on Apple keyboards (`MPRemoteCommandCenter`).
 - **macOS Control Center and Lock Screen Sync**: Live track title, artist name, artwork, and progress bar sync (`MPNowPlayingInfoCenter`).
 - **Animated Now Playing Expand**: Click the bottom player bar info box to smoothly expand into the full Now Playing stage with a spring animation.
-- **Compact Mini-Player Mode**: Press `Cmd + M` to toggle a stay-on-top floating desktop widget.
+- **Compact Mini-Player Mode**: Toggle a stay-on-top floating desktop widget.
 - **Custom Accent Color Themes**: Select from 5 minimalist accent themes (*Minimalist White*, *Emerald*, *Sapphire*, *Crimson*, *Amber*) in the Settings tab.
 - **Modern Dark Minimalist UI**: Matte dark background (`#141417`), 1px borders, high-contrast monochrome controls, and real-time audio visualizer.
 
