@@ -15,9 +15,15 @@ San (Japanese for Three / Harmony) provides a clean, modern interface for listen
 
 ## Features
 
+### Folder Auto-Ranging & Smart Metadata Scanning
+- **Automatic Library Integration**: Opening or importing a folder automatically merges all unique tracks into the central library, populating the Artists Page and Albums Page instantly.
+- **Smart Folder Hierarchy Metadata Parsing**:
+  - **Album Auto-Detection**: Fallback to parent directory name if ID3 album tag is missing.
+  - **Artist Auto-Detection**: Fallback to grandparent directory name or `"Artist - Song Title.mp3"` filename format if ID3 artist tag is missing.
+
 ### Audio Spectrum Bar Visualizer Options
 - **10 Selectable Spectrum Bar Styles**: Choose how the live audio waveform spectrum renders across the player stage, bottom player, and menu bar popover:
-  1. **Vertical Bars**: Classic vertical spectrum bars with level gradients (matching the reference image).
+  1. **Vertical Bars**: Classic vertical spectrum bars with level gradients.
   2. **Continuous Waveform**: Smooth connected sine curve frequency waveform.
   3. **Pulsing Dots Matrix**: Illuminated dot matrix level meter grid.
   4. **Audio Particles**: Floating glowing particles bouncing up with the rhythm.

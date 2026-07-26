@@ -771,6 +771,13 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
             selectedFolderURL = folderURL
             let scanned = scanDirectory(folderURL)
             folderTracks = scanned
+            
+            // Auto-range & merge all scanned folder tracks into main library playlist
+            let uniqueTracks = scanned.filter { track in
+                !self.playlist.contains(where: { $0.url == track.url })
+            }
+            self.playlist.append(contentsOf: uniqueTracks)
+            
             selectedNav = .folders
             saveLibrary()
             if let first = scanned.first {
@@ -1103,6 +1110,54 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
                         if let val = item.value as? String, !val.isEmpty, year.isEmpty { year = String(val.prefix(4)) }
                     }
                 }
+            }
+        }
+        
+        // Smart Folder Structure & Filename Auto-Detection for Artist & Album
+        let parentDirName = url.deletingLastPathComponent().lastPathComponent
+        let grandparentDirName = url.deletingLastPathComponent().deletingLastPathComponent().lastPathComponent
+        
+        // 1. Album Auto-Detection from Parent Folder Name
+        if album == "Unknown Album" || album.trimmingCharacters(in: .whitespaces).isEmpty {
+            let ignoredNames: Set<String> = ["/", "Music", "Downloads", "Desktop", "Documents", "san", "untitled folder", "untitled"]
+            if !parentDirName.isEmpty && !ignoredNames.contains(parentDirName) {
+                album = parentDirName
+            }
+        }
+        
+        // 2. Artist Auto-Detection from Filename ("Artist - Title.mp3") or Grandparent Folder
+        if artist == "Unknown Artist" || artist.trimmingCharacters(in: .whitespaces).isEmpty {
+            let fileName = url.deletingPathExtension().lastPathComponent
+            if fileName.contains(" - ") {
+                let parts = fileName.components(separatedBy: " - ")
+                if parts.count >= 2 {
+                    let potentialArtist = parts[0].trimmingCharacters(in: .whitespaces)
+                    let potentialTitle = parts[1...].joined(separator: " - ").trimmingCharacters(in: .whitespaces)
+                    if !potentialArtist.isEmpty && !potentialTitle.isEmpty {
+                        artist = potentialArtist
+                        if title == fileName {
+                            title = potentialTitle
+                        }
+                    }
+                }
+            } else if fileName.contains(" – ") {
+                let parts = fileName.components(separatedBy: " – ")
+                if parts.count >= 2 {
+                    let potentialArtist = parts[0].trimmingCharacters(in: .whitespaces)
+                    let potentialTitle = parts[1...].joined(separator: " – ").trimmingCharacters(in: .whitespaces)
+                    if !potentialArtist.isEmpty && !potentialTitle.isEmpty {
+                        artist = potentialArtist
+                        if title == fileName {
+                            title = potentialTitle
+                        }
+                    }
+                }
+            }
+            
+            // Grandparent Folder Fallback if still unknown
+            let ignoredGrandparents: Set<String> = ["/", "Users", "Music", "Downloads", "Desktop", "Documents", "san", "untitled folder"]
+            if artist == "Unknown Artist" && !grandparentDirName.isEmpty && !ignoredGrandparents.contains(grandparentDirName) {
+                artist = grandparentDirName
             }
         }
         
