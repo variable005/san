@@ -5,7 +5,7 @@
 > San is a native, ultra-lightweight, 100% offline macOS local music player built with Swift and SwiftUI.
 
 <p align="center">
-  <img src="assets/logo.png" alt="San App Icon" width="160" />
+  <img src="assets/logo.png" alt="San App Logo" width="160" />
 </p>
 
 > [!WARNING]
@@ -15,47 +15,53 @@
 
 ## Overview
 
-San (Japanese for Three / Harmony) provides a clean, modern interface for listening to local audio files without online accounts, telemetry, or external dependencies.
+San (Japanese for Three / Harmony) provides a clean, modern interface for listening to local audio files without online accounts, telemetry, or external internet dependencies.
 
 ---
 
 ## Features
 
 ### Audio Spectrum Bar Visualizer Options
-- **10 Selectable Spectrum Bar Styles**: Choose how the live audio waveform spectrum renders across the player stage, bottom player, and menu bar popover:
-  1. **Vertical Bars**: Classic vertical spectrum bars with level gradients.
-  2. **Continuous Waveform**: Smooth connected sine curve frequency waveform.
+- **10 Selectable Spectrum Styles**: Choose how live audio waveform spectrum bars render across the player stage, bottom bar, and status bar popover:
+  1. **Vertical Bars**: Classic vertical spectrum bars with smooth level height gradients.
+  2. **Continuous Waveform**: Connected frequency curve sine waveform line.
   3. **Pulsing Dots Matrix**: Illuminated dot matrix level meter grid.
-  4. **Audio Particles**: Floating glowing particles bouncing up with the rhythm.
+  4. **Audio Particles**: Floating glowing particles bouncing to the rhythm.
   5. **Minimal Pill Meters**: Dual horizontal stereo level meters.
-  6. **Mirrored Dual Spectrum**: Symmetrical top & bottom dual frequency spectrum bars.
+  6. **Mirrored Dual Spectrum**: Symmetrical top and bottom dual frequency spectrum bars.
   7. **Cyberpunk Peak Equalizer**: Segmented LED equalizer blocks with peak hold indicators.
   8. **Circular Orbit Ring**: Rotating circular ring with radial level bars.
   9. **Fluid Liquid Wave**: Organic fluid liquid wave filling with beat density.
   10. **Strobe Pulse Meters**: Concentric pulsating beat rings.
 
-### Artist & Library Auto-Detection
-- **Dedicated Artists Page**: Automatically groups tracks by artist with artist profile banners, total album counts, and total song counts.
-- **Auto-Detected Albums**: Inspecting an artist page auto-detects and categorizes all albums belonging to that specific artist with cover artwork grids.
-- **Play Artist Collection**: One-click action to play all tracks by an artist.
-
-### Artwork Visualizer & Motion Animations
-- **7 Player Motion Options**: Selectable presentation options in Settings (Fluid Spring, Vinyl Record Spin, Wave Spectrum Ring, Floating Glass Card, Neon Aura Glow, Gentle Ease, Snappy Fast).
+### Lyrics Engine & FLAC Vorbis Metadata
+- **Interactive Show Lyrics Auto-Scan**: Clicking the Lyrics button or pressing `Cmd + L` executes an instant local search across files and metadata.
+- **FLAC Vorbis Comment Extraction**: Reads embedded lyrics from FLAC Vorbis comments (`LYRICS`, `UNSYNCEDLYRICS`, `SYNCEDLYRICS`) and MP3 ID3 frames (`USLT`).
+- **Raw Stream Binary Scanner**: Fallback binary reader to parse embedded metadata tags directly from file streams when OS audio APIs omit them.
+- **Automatic LRC Synchronization**: Automatically parses timestamp headers (`[MM:SS.xx]`) for real-time synchronized line scrolling.
+- **Sidecar File Finder**: Scans local directories for `.lrc` and `.txt` files matching track title or artist combinations.
 
 ### Folder Auto-Ranging & Smart Metadata Scanning
-- **Automatic Library Integration**: Opening or importing a folder automatically merges all unique tracks into the central library, populating the Artists Page and Albums Page instantly.
+- **Automatic Library Integration**: Importing or opening a folder automatically merges all unique tracks into the central library, populating the Artists Page and Albums Page instantly.
 - **Smart Folder Hierarchy Metadata Parsing**:
   - **Album Auto-Detection**: Fallback to parent directory name if ID3 album tag is missing.
   - **Artist Auto-Detection**: Fallback to grandparent directory name or `"Artist - Song Title.mp3"` filename format if ID3 artist tag is missing.
 
-### Audio Engine & Playback
+### Artist & Library Views
+- **Dedicated Artists Page**: Automatically groups tracks by artist with artist profile banners, total album counts, and song totals.
+- **Auto-Detected Albums**: Inspecting an artist page auto-detects and categorizes all albums belonging to that specific artist.
+- **Play Artist Collection**: One-click action to play all tracks by an artist.
+
+### Artwork Presentation & Motion Options
+- **7 Selectable Motion Options**: Custom artwork presentations in Settings (Fluid Spring, Vinyl Record Spin, Wave Spectrum Ring, Floating Glass Card, Ambient Aura Glow, Gentle Ease, Snappy Fast).
+
+### Audio Engine & Playback Controls
 - **Crossfade Transitions**: Configurable overlap transition durations (Off, 1s, 2s, 3s, 5s) between tracks.
 - **Pre-Buffered Gapless Playback**: Pre-loads next track buffers for zero-gap playback transitions.
 - **5-Band Parametric Equalizer**: Custom audio processing with presets (Flat, Bass Boost, Treble Boost, Vocal, Electronic).
 - **Play Count & History Tracking**: Automatically increments track play counts and tracks last-played dates.
 - **Variable Playback Speed**: Control speed from 0.5x to 2.0x.
 - **Stereo Balance Control**: Adjust left/right audio channel balance.
-- **Synced LRC Lyrics**: Live lyric highlighting for `.lrc` sidecar files or embedded USLT ID3 metadata tags.
 
 ### Library & Smart Playlists
 - **Smart Playlists**: Auto-generated dynamic views for Recently Added, Most Played (Top 25), and Recently Played tracks.
