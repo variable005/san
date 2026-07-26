@@ -87,6 +87,7 @@ struct AlbumGroup: Identifiable, Equatable {
 enum NavigationItem: String, CaseIterable, Identifiable {
     case library = "Library"
     case albums = "Albums"
+    case artists = "Artists"
     case nowPlaying = "Now Playing"
     case folders = "Folder Mode"
     case favorites = "Favorites"
@@ -103,6 +104,7 @@ enum NavigationItem: String, CaseIterable, Identifiable {
         switch self {
         case .library: return "music.note"
         case .albums: return "square.grid.2x2.fill"
+        case .artists: return "person.2.fill"
         case .nowPlaying: return "play.circle.fill"
         case .folders: return "folder.fill"
         case .favorites: return "heart.fill"
@@ -154,9 +156,24 @@ struct UserPlaylist: Identifiable, Codable, Equatable {
     var trackPaths: [String]
 }
 
+struct ArtistGroup: Identifiable, Equatable {
+    var id: String { name }
+    let name: String
+    let albums: [AlbumGroup]
+    let tracks: [Track]
+    let artwork: NSImage?
+    
+    static func == (lhs: ArtistGroup, rhs: ArtistGroup) -> Bool {
+        return lhs.name == rhs.name && lhs.tracks.count == rhs.tracks.count
+    }
+}
+
 enum PlayerAnimationOption: String, CaseIterable, Identifiable, Codable {
     case smoothSpring = "Fluid Spring"
     case vinylSpin = "Vinyl Record Spin"
+    case waveSpectrum = "Wave Spectrum Ring"
+    case floatingCard = "Floating Glass Card"
+    case neonAura = "Neon Aura Glow"
     case gentleEase = "Gentle Ease"
     case snappyLinear = "Snappy Fast"
     
@@ -166,6 +183,9 @@ enum PlayerAnimationOption: String, CaseIterable, Identifiable, Codable {
         switch self {
         case .smoothSpring: return .spring(response: 0.38, dampingFraction: 0.72)
         case .vinylSpin: return .interactiveSpring(response: 0.45, dampingFraction: 0.65)
+        case .waveSpectrum: return .spring(response: 0.5, dampingFraction: 0.6)
+        case .floatingCard: return .easeInOut(duration: 0.6)
+        case .neonAura: return .easeInOut(duration: 0.8)
         case .gentleEase: return .easeInOut(duration: 0.4)
         case .snappyLinear: return .linear(duration: 0.15)
         }
@@ -268,6 +288,7 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var newPlaylistName: String = ""
     @Published var showNewPlaylistPrompt: Bool = false
     @Published var selectedAlbum: AlbumGroup? = nil
+    @Published var selectedArtist: ArtistGroup? = nil
     
     // Sleep Timer State
     @Published var sleepTimerMinutes: Int = 0 // 0 = off, 15, 30, 45, 60, -1 = end of track
@@ -357,6 +378,28 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 artist: tracks.first?.artist ?? "Unknown Artist",
                 artwork: tracks.first(where: { $0.artwork != nil })?.artwork,
                 tracks: tracks
+            )
+        }.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+    }
+    
+    var artistsList: [ArtistGroup] {
+        let grouped = Dictionary(grouping: playlist, by: { $0.artist })
+        return grouped.map { (artistName, tracks) in
+            let albumDict = Dictionary(grouping: tracks, by: { $0.album })
+            let albums = albumDict.map { (albumName, albumTracks) in
+                AlbumGroup(
+                    name: albumName,
+                    artist: artistName,
+                    artwork: albumTracks.first(where: { $0.artwork != nil })?.artwork,
+                    tracks: albumTracks
+                )
+            }.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+            
+            return ArtistGroup(
+                name: artistName,
+                albums: albums,
+                tracks: tracks,
+                artwork: tracks.first(where: { $0.artwork != nil })?.artwork
             )
         }.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
     }
@@ -1487,6 +1530,92 @@ struct ArtworkView: View {
                 }
                 .rotationEffect(.degrees(isPlaying ? 360 : 0))
                 .animation(isPlaying ? .linear(duration: 8).repeatForever(autoreverses: false) : .default, value: isPlaying)
+            } else if animationOption == .waveSpectrum {
+                ZStack {
+                    // Pulsing Spectrum Rings
+                    ForEach(0..<3, id: \.self) { ring in
+                        Circle()
+                            .stroke(accentColor.opacity(isPlaying ? 0.35 / Double(ring + 1) : 0.08), lineWidth: isPlaying ? 3 : 1)
+                            .frame(width: size + CGFloat(ring * 18), height: size + CGFloat(ring * 18))
+                            .scaleEffect(isPlaying ? 1.05 : 1.0)
+                            .animation(isPlaying ? .easeInOut(duration: 1.2).repeatForever(autoreverses: true).delay(Double(ring) * 0.2) : .default, value: isPlaying)
+                    }
+                    
+                    // Artwork Circle
+                    Group {
+                        if let art = artwork {
+                            Image(nsImage: art)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                        } else {
+                            ZStack {
+                                accentColor.opacity(0.3)
+                                Image(systemName: "waveform")
+                                    .font(.system(size: size * 0.35, weight: .light))
+                                    .foregroundColor(.white.opacity(0.7))
+                            }
+                        }
+                    }
+                    .frame(width: size, height: size)
+                    .clipShape(Circle())
+                    .overlay(Circle().stroke(isPlaying ? accentColor : Color.white.opacity(0.2), lineWidth: 2))
+                    .shadow(color: isPlaying ? accentColor.opacity(0.5) : Color.black.opacity(0.3), radius: isPlaying ? 16 : 8)
+                }
+            } else if animationOption == .neonAura {
+                ZStack {
+                    // Neon Aura Radial Glow
+                    Circle()
+                        .fill(accentColor.opacity(isPlaying ? 0.6 : 0.1))
+                        .frame(width: size * 1.2, height: size * 1.2)
+                        .blur(radius: 20)
+                        .scaleEffect(isPlaying ? 1.1 : 1.0)
+                        .animation(isPlaying ? .easeInOut(duration: 1.5).repeatForever(autoreverses: true) : .default, value: isPlaying)
+                    
+                    Group {
+                        if let art = artwork {
+                            Image(nsImage: art)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                        } else {
+                            ZStack {
+                                Color(red: 0.18, green: 0.18, blue: 0.20)
+                                Image(systemName: "sparkles")
+                                    .font(.system(size: size * 0.35, weight: .light))
+                                    .foregroundColor(.white.opacity(0.4))
+                            }
+                        }
+                    }
+                    .frame(width: size, height: size)
+                    .cornerRadius(12)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(isPlaying ? accentColor : Color.white.opacity(0.1), lineWidth: 1.5)
+                    )
+                    .shadow(color: isPlaying ? accentColor.opacity(0.7) : Color.black.opacity(0.4), radius: isPlaying ? 20 : 8)
+                }
+            } else if animationOption == .floatingCard {
+                Group {
+                    if let art = artwork {
+                        Image(nsImage: art)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    } else {
+                        ZStack {
+                            Color(red: 0.18, green: 0.18, blue: 0.20)
+                            Image(systemName: "square.stack.3d.up.fill")
+                                .font(.system(size: size * 0.35, weight: .light))
+                                .foregroundColor(.white.opacity(0.4))
+                        }
+                    }
+                }
+                .frame(width: size, height: size)
+                .cornerRadius(16)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(LinearGradient(gradient: Gradient(colors: [Color.white.opacity(0.4), Color.clear]), startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.5)
+                )
+                .shadow(color: isPlaying ? accentColor.opacity(0.45) : Color.black.opacity(0.3), radius: isPlaying ? 22 : 10, x: 0, y: isPlaying ? 10 : 5)
+                .rotation3DEffect(.degrees(isPlaying ? 6 : 0), axis: (x: 0.5, y: -0.5, z: 0))
             } else {
                 Group {
                     if let art = artwork {
@@ -2237,6 +2366,282 @@ struct AlbumsGridView: View {
     }
 }
 
+// MARK: - Artists Page Component (Auto-Detect Albums per Artist)
+
+struct ArtistsView: View {
+    @ObservedObject var engine: AudioEngine
+    let columns = [GridItem(.adaptive(minimum: 160), spacing: 20)]
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            if let artist = engine.selectedArtist {
+                // Detailed Artist Page
+                VStack(alignment: .leading, spacing: 20) {
+                    HStack(spacing: 12) {
+                        Button(action: { engine.selectedArtist = nil }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "chevron.left")
+                                Text("Back to Artists")
+                            }
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(engine.activeAccentColor)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        
+                        Spacer()
+                    }
+                    
+                    // Artist Banner Card
+                    HStack(spacing: 24) {
+                        // Circular Artist Avatar Artwork
+                        Group {
+                            if let art = artist.artwork {
+                                Image(nsImage: art)
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                            } else {
+                                ZStack {
+                                    engine.activeAccentColor.opacity(0.3)
+                                    Image(systemName: "person.fill")
+                                        .font(.system(size: 40, weight: .light))
+                                        .foregroundColor(.white.opacity(0.6))
+                                }
+                            }
+                        }
+                        .frame(width: 120, height: 120)
+                        .clipShape(Circle())
+                        .overlay(Circle().stroke(engine.activeAccentColor, lineWidth: 2))
+                        .shadow(color: engine.activeAccentColor.opacity(0.3), radius: 12)
+                        
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(artist.name)
+                                .font(.system(size: 24, weight: .bold))
+                                .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
+                            
+                            HStack(spacing: 12) {
+                                Text("\(artist.albums.count) Auto-Detected Albums")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(engine.activeAccentColor)
+                                
+                                Text("•")
+                                    .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
+                                
+                                Text("\(artist.tracks.count) Songs")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
+                            }
+                            
+                            Button(action: {
+                                if let first = artist.tracks.first {
+                                    engine.loadAndPlay(track: first)
+                                }
+                            }) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "play.fill")
+                                    Text("Play All Artist Tracks")
+                                }
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundColor(.black)
+                                .padding(.horizontal, 18)
+                                .padding(.vertical, 8)
+                                .background(Capsule().fill(engine.activeAccentColor))
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                            .padding(.top, 6)
+                        }
+                    }
+                    .padding(20)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(UniformDesign.bgCard(mode: engine.appearanceMode))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16)
+                                    .stroke(UniformDesign.borderSubtle(mode: engine.appearanceMode), lineWidth: 1)
+                            )
+                    )
+                    
+                    // Auto-Detected Albums by Artist Section
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Auto-Detected Albums (\(artist.albums.count))")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
+                        
+                        LazyVGrid(columns: columns, spacing: 20) {
+                            ForEach(artist.albums) { album in
+                                Button(action: {
+                                    engine.selectedAlbum = album
+                                    engine.selectedNav = .albums
+                                }) {
+                                    VStack(alignment: .leading, spacing: 10) {
+                                        ArtworkView(artwork: album.artwork, size: 150, isPlaying: engine.currentTrack?.album == album.name && engine.isPlaying, accentColor: engine.activeAccentColor)
+                                        
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(album.name)
+                                                .font(.system(size: 13, weight: .bold))
+                                                .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
+                                                .lineLimit(1)
+                                            Text("\(album.tracks.count) tracks")
+                                                .font(.system(size: 11))
+                                                .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
+                                        }
+                                    }
+                                    .padding(12)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 12)
+                                            .fill(UniformDesign.bgCard(mode: engine.appearanceMode))
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 12)
+                                                    .stroke(UniformDesign.borderSubtle(mode: engine.appearanceMode), lineWidth: 1)
+                                            )
+                                    )
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
+                        }
+                    }
+                    
+                    // All Songs by Artist Section
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("All Songs by \(artist.name)")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
+                        
+                        VStack(spacing: 2) {
+                            ForEach(Array(artist.tracks.enumerated()), id: \.element.id) { index, track in
+                                let isHovered = engine.hoveredTrackId == track.id
+                                let isSelected = engine.currentTrack == track
+                                
+                                HStack(spacing: 14) {
+                                    Text("\(index + 1)")
+                                        .font(.system(size: 12, design: .monospaced))
+                                        .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
+                                        .frame(width: 24, alignment: .trailing)
+                                    
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(track.title)
+                                            .font(.system(size: 13, weight: .medium))
+                                            .foregroundColor(isSelected ? engine.activeAccentColor : UniformDesign.textPrimary(mode: engine.appearanceMode))
+                                            .lineLimit(1)
+                                        Text(track.album)
+                                            .font(.system(size: 11))
+                                            .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
+                                            .lineLimit(1)
+                                    }
+                                    
+                                    Spacer()
+                                    
+                                    Text(formatTime(track.duration))
+                                        .font(.system(size: 12, design: .monospaced))
+                                        .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
+                                    
+                                    Button(action: { engine.loadAndPlay(track: track) }) {
+                                        Image(systemName: isSelected && engine.isPlaying ? "pause.fill" : "play.fill")
+                                            .font(.system(size: 12))
+                                            .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
+                                            .padding(6)
+                                    }
+                                    .buttonStyle(PlainButtonStyle())
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 6)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(isSelected ? UniformDesign.activeHighlight(mode: engine.appearanceMode) : (isHovered ? UniformDesign.hoverHighlight(mode: engine.appearanceMode) : Color.clear))
+                                )
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    engine.loadAndPlay(track: track)
+                                }
+                                .onHover { hovering in
+                                    engine.hoveredTrackId = hovering ? track.id : nil
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Artists Overview Grid
+                Text("Artists Library (\(engine.artistsList.count))")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
+                
+                if engine.artistsList.isEmpty {
+                    ModernCard(cornerRadius: 14, mode: engine.appearanceMode) {
+                        VStack(spacing: 12) {
+                            Image(systemName: "person.2.fill")
+                                .font(.system(size: 36))
+                                .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
+                            Text("No artists found in library")
+                                .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
+                        }
+                        .padding(40)
+                        .frame(maxWidth: .infinity)
+                    }
+                } else {
+                    LazyVGrid(columns: columns, spacing: 20) {
+                        ForEach(engine.artistsList) { artistGroup in
+                            Button(action: { engine.selectedArtist = artistGroup }) {
+                                VStack(alignment: .center, spacing: 12) {
+                                    // Circular Artist Cover Art Avatar
+                                    Group {
+                                        if let art = artistGroup.artwork {
+                                            Image(nsImage: art)
+                                                .resizable()
+                                                .aspectRatio(contentMode: .fill)
+                                        } else {
+                                            ZStack {
+                                                engine.activeAccentColor.opacity(0.2)
+                                                Image(systemName: "person.fill")
+                                                    .font(.system(size: 36, weight: .light))
+                                                    .foregroundColor(.white.opacity(0.6))
+                                            }
+                                        }
+                                    }
+                                    .frame(width: 110, height: 110)
+                                    .clipShape(Circle())
+                                    .overlay(Circle().stroke(UniformDesign.borderSubtle(mode: engine.appearanceMode), lineWidth: 1))
+                                    .shadow(color: Color.black.opacity(0.3), radius: 6)
+                                    
+                                    VStack(spacing: 3) {
+                                        Text(artistGroup.name)
+                                            .font(.system(size: 13, weight: .bold))
+                                            .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
+                                            .lineLimit(1)
+                                        Text("\(artistGroup.albums.count) Albums • \(artistGroup.tracks.count) Songs")
+                                            .font(.system(size: 10))
+                                            .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
+                                            .lineLimit(1)
+                                    }
+                                }
+                                .padding(16)
+                                .frame(maxWidth: .infinity)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 14)
+                                        .fill(UniformDesign.bgCard(mode: engine.appearanceMode))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 14)
+                                                .stroke(UniformDesign.borderSubtle(mode: engine.appearanceMode), lineWidth: 1)
+                                        )
+                                )
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 24)
+    }
+    
+    private func formatTime(_ seconds: TimeInterval) -> String {
+        guard !seconds.isNaN && seconds >= 0 else { return "00:00" }
+        let mins = Int(seconds) / 60
+        let secs = Int(seconds) % 60
+        return String(format: "%02d:%02d", mins, secs)
+    }
+}
+
 // MARK: - Folder Mode View Component
 
 struct FolderModeView: View {
@@ -2437,35 +2842,55 @@ struct SettingsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             
-            // Player Animation Options Section
+            // Player Visualizer & Motion Animation Options Section
             ModernCard(cornerRadius: 14, mode: engine.appearanceMode) {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("Player Animation Options")
+                    Text("Player Visualizer & Motion Options")
                         .font(.system(size: 14, weight: .bold))
                         .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                     
-                    Text("Choose your preferred motion effect and artwork presentation:")
+                    Text("Select your preferred artwork presentation, audio visualizer ring, and motion style:")
                         .font(.system(size: 12))
                         .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
                     
-                    HStack(spacing: 12) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 10)], spacing: 10) {
                         ForEach(PlayerAnimationOption.allCases) { option in
+                            let iconName: String = {
+                                switch option {
+                                case .smoothSpring: return "sparkles"
+                                case .vinylSpin: return "record.circle.fill"
+                                case .waveSpectrum: return "waveform"
+                                case .floatingCard: return "square.stack.3d.up.fill"
+                                case .neonAura: return "sun.max.fill"
+                                case .gentleEase: return "wave.3.right"
+                                case .snappyLinear: return "bolt.fill"
+                                }
+                            }()
+                            
                             Button(action: {
                                 withAnimation(option.animation) {
                                     engine.playerAnimation = option
                                     engine.saveLibrary()
                                 }
                             }) {
-                                HStack(spacing: 6) {
-                                    Image(systemName: option == .vinylSpin ? "record.circle.fill" : (option == .smoothSpring ? "sparkles" : (option == .gentleEase ? "wave.3.right" : "bolt.fill")))
+                                HStack(spacing: 8) {
+                                    Image(systemName: iconName)
+                                        .font(.system(size: 12))
                                     Text(option.rawValue)
+                                        .font(.system(size: 11, weight: engine.playerAnimation == option ? .bold : .medium))
+                                        .lineLimit(1)
                                 }
-                                .font(.system(size: 12, weight: engine.playerAnimation == option ? .bold : .medium))
                                 .foregroundColor(engine.playerAnimation == option ? .black : UniformDesign.textPrimary(mode: engine.appearanceMode))
-                                .padding(.horizontal, 14)
+                                .padding(.horizontal, 12)
                                 .padding(.vertical, 8)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                                 .background(
-                                    Capsule().fill(engine.playerAnimation == option ? engine.activeAccentColor : UniformDesign.hoverHighlight(mode: engine.appearanceMode))
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(engine.playerAnimation == option ? engine.activeAccentColor : UniformDesign.hoverHighlight(mode: engine.appearanceMode))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(engine.playerAnimation == option ? engine.activeAccentColor : UniformDesign.borderSubtle(mode: engine.appearanceMode), lineWidth: 1)
                                 )
                             }
                             .buttonStyle(PlainButtonStyle())
@@ -2772,6 +3197,7 @@ struct ContentView: View {
                                     SidebarSectionView(title: "LIBRARY", engine: engine) {
                                         SidebarNavItemButton(item: .library, engine: engine)
                                         SidebarNavItemButton(item: .albums, engine: engine)
+                                        SidebarNavItemButton(item: .artists, engine: engine)
                                         SidebarNavItemButton(item: .nowPlaying, engine: engine)
                                         SidebarNavItemButton(item: .folders, engine: engine)
                                     }
@@ -2942,6 +3368,8 @@ struct ContentView: View {
                                         FolderModeView(engine: engine)
                                     } else if engine.selectedNav == .albums {
                                         AlbumsGridView(engine: engine)
+                                    } else if engine.selectedNav == .artists {
+                                        ArtistsView(engine: engine)
                                     } else {
                                         if engine.selectedNav == .nowPlaying || engine.playlist.isEmpty {
                                             // Now Playing Stage with Hi-Res Badge & Lyrics Toggle

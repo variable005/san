@@ -15,6 +15,21 @@ San (Japanese for Three / Harmony) provides a clean, modern interface for listen
 
 ## Features
 
+### Artist & Library Auto-Detection
+- **Dedicated Artists Page**: Automatically groups tracks by artist with artist profile banners, total album counts, and total song counts.
+- **Auto-Detected Albums**: Inspecting an artist page auto-detects and categorizes all albums belonging to that specific artist with cover artwork grids.
+- **Play Artist Collection**: One-click action to play all tracks by an artist.
+
+### Audio Visualizer & Motion Animations
+- **7 Player Visualizer & Motion Options**: Selectable presentation options in Settings:
+  1. **Fluid Spring**: Glowing artwork with responsive spring motion.
+  2. **Vinyl Record Spin**: Rotating vinyl record disc with spindle & groove details.
+  3. **Wave Spectrum Ring**: Animated audio frequency spectrum rings pulsing around circular artwork.
+  4. **Floating Glass Card**: 3D tilted glassmorphic card with specular highlights.
+  5. **Neon Aura Glow**: Multi-layered pulsing radial neon aura behind album art.
+  6. **Gentle Ease**: Smooth ease-in-out breathing motion.
+  7. **Snappy Fast**: Instant responsive scaling.
+
 ### Audio Engine & Playback
 - **Crossfade Transitions**: Configurable overlap transition durations (Off, 1s, 2s, 3s, 5s) between tracks.
 - **Pre-Buffered Gapless Playback**: Pre-loads next track buffers for zero-gap playback transitions.
@@ -35,7 +50,6 @@ San (Japanese for Three / Harmony) provides a clean, modern interface for listen
 ### Interface & Customization
 - **Resizable Sidebar**: Drag-to-resize sidebar width (160pt to 280pt) with persisted dimensions.
 - **Dynamic Album Artwork Color Extraction**: Samples dominant vibrant accent colors from playing album artwork in real time.
-- **Selectable Motion Options**: Player animation styles including Fluid Spring, Vinyl Record Spin, Gentle Ease, and Snappy Fast.
 - **Appearance Modes**: Dark Mode, Pitch Black Mode (OLED), and Light Mode.
 - **Window State Persistence**: Automatically restores exact window size and position on relaunch.
 - **macOS Integration**: Menu bar popover HUD, Media key support, Now Playing Control Center integration, and Dock icon progress badge.
