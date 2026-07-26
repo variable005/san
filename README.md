@@ -14,9 +14,20 @@
 - **100% Offline and Private**: Zero network dependencies, zero tracking, zero telemetry, zero login. All metadata parsing and audio processing take place strictly on local hardware.
 - **Apple Silicon Native**: Compiled directly to `arm64` machine code for M-series Mac processors.
 
-### Folder Mode and Directory Playback
-- **Select Folder to Play (Folder Browser)**: Select any folder on disk (`~/Music`, external drives, or custom folders) to browse and play audio files strictly within that directory structure.
-- **Auto-Scan Subdirectories**: Recursively scans folders for `.mp3`, `.wav`, `.flac`, `.m4a`, and `.aac` tracks.
+### Dynamic Themes and Appearance Modes
+- **🎨 Dynamic Album Artwork Theme Extraction**: Samples vibrant dominant accent colors directly from playing album cover art (`NSBitmapImageRep` pixel analysis) and dynamically morphs visualizer bars, sliders, and glowing shadows in real time.
+- **Appearance Modes (Settings)**:
+  - **Dark Mode**: Standard matte dark aesthetic (`#141417`).
+  - **Pitch Black Mode**: Pure black OLED mode (`#000000`) for battery savings and high contrast.
+  - **Light Mode**: High-contrast, clean minimalist light theme (`#F6F6F8`).
+- **Dynamic Theme Toggle**: Turn dynamic color extraction ON or OFF in Settings with fallback accent selection (*Minimalist White*, *Emerald*, *Sapphire*, *Crimson*, *Amber*).
+
+### Menu Bar Popover HUD & Visualizer
+- **🎯 macOS Menu Bar Live HUD**: Click the **San** status bar icon in your Mac's Menu Bar to reveal a popup HUD popover with:
+  - Live album cover art, track title, artist, and Hi-Res audio specifications badge.
+  - Live spectrum visualizer frequency bars.
+  - Play/Pause, Next, Previous transport control buttons.
+  - Quick "Open San" button to bring the main window to front.
 
 ### Up Next Play Queue and Album Grid
 - **📜 Up Next Play Queue**: Right-click or tap any track to select **Play Next** or **Add to Queue**. Queued songs play with highest priority.
@@ -40,19 +51,13 @@
 - **Synced Real-Time Lyrics**: Automatically loads `.lrc` timestamped lyrics files and highlights active singing lines in real-time.
 
 ### Playback, Library, and Storage
+- **Folder Mode (Select Folder to Play)**: Select any directory (`~/Music`, external drives, or custom folders) to browse and play audio files strictly within that folder structure.
 - **Sleep Timer**: Auto-stop playback countdown timer (15m, 30m, 45m, 60m, or end of track).
 - **Custom Playlists**: Create, rename, and add/remove tracks from custom playlists.
 - **Track Inspector**: View detailed offline file metadata (file size, channel count, sample rate, bit depth, format, exact path).
 - **Favorites System**: One-click heart button to star tracks and filter dedicated favorite playlists.
 - **Drag and Drop Import**: Drag audio files or folders from Finder directly into the application window.
-- **Persistent Storage**: Saves imported track paths to `~/Library/Application Support/San/library.json` so playlists, last folder path, and theme settings persist across restarts.
-
-### macOS Integration and Interface
-- **macOS Control Center and Lock Screen Sync**: Live track title, artist name, artwork, and progress bar sync (`MPNowPlayingInfoCenter`).
-- **Animated Now Playing Expand**: Click the bottom player bar info box to smoothly expand into the full Now Playing stage with a spring animation.
-- **Compact Mini-Player Mode**: Toggle a stay-on-top floating desktop widget.
-- **Custom Accent Color Themes**: Select from 5 minimalist accent themes (*Minimalist White*, *Emerald*, *Sapphire*, *Crimson*, *Amber*) in the Settings tab.
-- **Modern Dark Minimalist UI**: Matte dark background (`#141417`), 1px borders, high-contrast monochrome controls, and real-time audio visualizer.
+- **Persistent Storage**: Saves imported track paths to `~/Library/Application Support/San/library.json` so playlists, last folder path, theme settings, and appearance mode persist across restarts.
 
 ---
 

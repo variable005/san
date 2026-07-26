@@ -28,6 +28,14 @@ enum AccentTheme: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+enum AppearanceMode: String, CaseIterable, Identifiable, Codable {
+    case dark = "Dark Mode"
+    case pitchBlack = "Pitch Black"
+    case light = "Light Mode"
+    
+    var id: String { self.rawValue }
+}
+
 struct Track: Identifiable, Equatable {
     let id = UUID()
     let url: URL
@@ -114,6 +122,8 @@ struct SavedLibraryData: Codable {
     var favoritePaths: [String]?
     var eqGains: [Float]?
     var accentTheme: AccentTheme?
+    var appearanceMode: AppearanceMode?
+    var useDynamicArtworkTheme: Bool?
     var userPlaylists: [UserPlaylist]?
     var lastFolderURL: String?
 }
@@ -181,6 +191,12 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var playQueue: [Track] = []
     @Published var showQueueDrawer: Bool = false
     
+    // Theme & Appearance State
+    @Published var currentAccent: AccentTheme = .white
+    @Published var dynamicAccentColor: Color? = nil
+    @Published var appearanceMode: AppearanceMode = .dark
+    @Published var useDynamicArtworkTheme: Bool = true
+    
     // Folder Mode State
     @Published var selectedFolderURL: URL? = nil
     @Published var folderTracks: [Track] = []
@@ -197,9 +213,6 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var sleepTimerMinutes: Int = 0 // 0 = off, 15, 30, 45, 60, -1 = end of track
     @Published var sleepTimerRemainingSeconds: Int = 0
     private var sleepTimer: Timer?
-    
-    // Theme Accent State
-    @Published var currentAccent: AccentTheme = .white
     
     // Equalizer State (5 Bands: 60Hz, 230Hz, 910Hz, 3.6kHz, 14kHz)
     @Published var selectedEQPreset: EQPreset = .flat
@@ -223,6 +236,13 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
     private var timer: Timer?
     private var visualizerTimer: Timer?
     
+    var activeAccentColor: Color {
+        if useDynamicArtworkTheme, let sampled = dynamicAccentColor {
+            return sampled
+        }
+        return currentAccent.color
+    }
+    
     var albumsList: [AlbumGroup] {
         let grouped = Dictionary(grouping: playlist, by: { $0.album })
         return grouped.map { (albumName, tracks) in
@@ -239,6 +259,70 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
         super.init()
         setupRemoteCommandCenter()
         loadLibrary()
+    }
+    
+    // MARK: - Dynamic Color Extractor from Album Cover Art
+    
+    func extractDominantColor(from image: NSImage) {
+        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return }
+        
+        let width = cgImage.width
+        let height = cgImage.height
+        let bytesPerPixel = 4
+        let bytesPerRow = bytesPerPixel * width
+        let totalBytes = bytesPerRow * height
+        
+        var rawData = [UInt8](repeating: 0, count: totalBytes)
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        
+        guard let context = CGContext(
+            data: &rawData,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: bytesPerRow,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return }
+        
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        
+        var rSum: Double = 0
+        var gSum: Double = 0
+        var bSum: Double = 0
+        var sampleCount: Double = 0
+        
+        let step = max(1, (width * height) / 200) // Sample 200 pixels
+        for i in stride(from: 0, to: width * height, by: step) {
+            let offset = i * 4
+            if offset + 3 < rawData.count {
+                let r = Double(rawData[offset]) / 255.0
+                let g = Double(rawData[offset + 1]) / 255.0
+                let b = Double(rawData[offset + 2]) / 255.0
+                
+                // Exclude near-black, near-white, or dull grays
+                let maxC = max(r, max(g, b))
+                let minC = min(r, min(g, b))
+                let saturation = maxC == 0 ? 0 : (maxC - minC) / maxC
+                let brightness = maxC
+                
+                if saturation > 0.15 && brightness > 0.2 && brightness < 0.95 {
+                    rSum += r
+                    gSum += g
+                    bSum += b
+                    sampleCount += 1
+                }
+            }
+        }
+        
+        if sampleCount > 0 {
+            let finalR = rSum / sampleCount
+            let finalG = gSum / sampleCount
+            let finalB = bSum / sampleCount
+            DispatchQueue.main.async {
+                self.dynamicAccentColor = Color(red: finalR, green: finalG, blue: finalB)
+            }
+        }
     }
     
     // MARK: - Play Queue Management
@@ -334,6 +418,12 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
     
     func loadAndPlay(track: Track) {
         currentTrack = track
+        if let artwork = track.artwork {
+            extractDominantColor(from: artwork)
+        } else {
+            dynamicAccentColor = nil
+        }
+        
         do {
             audioPlayer = try AVAudioPlayer(contentsOf: track.url)
             audioPlayer?.delegate = self
@@ -815,6 +905,8 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
             favoritePaths: Array(favoritePaths),
             eqGains: eqGains,
             accentTheme: currentAccent,
+            appearanceMode: appearanceMode,
+            useDynamicArtworkTheme: useDynamicArtworkTheme,
             userPlaylists: userPlaylists,
             lastFolderURL: selectedFolderURL?.path
         )
@@ -835,6 +927,12 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
             
             if let theme = savedData.accentTheme {
                 self.currentAccent = theme
+            }
+            if let mode = savedData.appearanceMode {
+                self.appearanceMode = mode
+            }
+            if let dyn = savedData.useDynamicArtworkTheme {
+                self.useDynamicArtworkTheme = dyn
             }
             if let favs = savedData.favoritePaths {
                 self.favoritePaths = Set(favs)
@@ -916,34 +1014,97 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
 }
 
-// MARK: - Uniform UI Design System
+// MARK: - Dynamic Appearance UI System
 
 struct UniformDesign {
-    static let bgMain = Color(red: 0.08, green: 0.08, blue: 0.09)
-    static let bgSidebar = Color(red: 0.10, green: 0.10, blue: 0.11)
-    static let bgCard = Color(red: 0.13, green: 0.13, blue: 0.14)
-    static let bgBottomBar = Color(red: 0.11, green: 0.11, blue: 0.12)
-    static let borderSubtle = Color.white.opacity(0.07)
-    static let activeHighlight = Color.white.opacity(0.12)
-    static let hoverHighlight = Color.white.opacity(0.05)
+    static func bgMain(mode: AppearanceMode) -> Color {
+        switch mode {
+        case .dark: return Color(red: 0.08, green: 0.08, blue: 0.09)
+        case .pitchBlack: return Color.black
+        case .light: return Color(red: 0.95, green: 0.95, blue: 0.97)
+        }
+    }
     
-    static let textPrimary = Color.white
-    static let textSecondary = Color.white.opacity(0.65)
-    static let textMuted = Color.white.opacity(0.40)
+    static func bgSidebar(mode: AppearanceMode) -> Color {
+        switch mode {
+        case .dark: return Color(red: 0.10, green: 0.10, blue: 0.11)
+        case .pitchBlack: return Color(red: 0.03, green: 0.03, blue: 0.04)
+        case .light: return Color(red: 0.91, green: 0.91, blue: 0.94)
+        }
+    }
+    
+    static func bgCard(mode: AppearanceMode) -> Color {
+        switch mode {
+        case .dark: return Color(red: 0.13, green: 0.13, blue: 0.14)
+        case .pitchBlack: return Color(red: 0.06, green: 0.06, blue: 0.07)
+        case .light: return Color.white
+        }
+    }
+    
+    static func bgBottomBar(mode: AppearanceMode) -> Color {
+        switch mode {
+        case .dark: return Color(red: 0.11, green: 0.11, blue: 0.12)
+        case .pitchBlack: return Color(red: 0.04, green: 0.04, blue: 0.05)
+        case .light: return Color(red: 0.93, green: 0.93, blue: 0.96)
+        }
+    }
+    
+    static func borderSubtle(mode: AppearanceMode) -> Color {
+        switch mode {
+        case .dark, .pitchBlack: return Color.white.opacity(0.07)
+        case .light: return Color.black.opacity(0.08)
+        }
+    }
+    
+    static func activeHighlight(mode: AppearanceMode) -> Color {
+        switch mode {
+        case .dark, .pitchBlack: return Color.white.opacity(0.12)
+        case .light: return Color.black.opacity(0.07)
+        }
+    }
+    
+    static func hoverHighlight(mode: AppearanceMode) -> Color {
+        switch mode {
+        case .dark, .pitchBlack: return Color.white.opacity(0.05)
+        case .light: return Color.black.opacity(0.04)
+        }
+    }
+    
+    static func textPrimary(mode: AppearanceMode) -> Color {
+        switch mode {
+        case .dark, .pitchBlack: return Color.white
+        case .light: return Color(red: 0.10, green: 0.10, blue: 0.12)
+        }
+    }
+    
+    static func textSecondary(mode: AppearanceMode) -> Color {
+        switch mode {
+        case .dark, .pitchBlack: return Color.white.opacity(0.65)
+        case .light: return Color.black.opacity(0.60)
+        }
+    }
+    
+    static func textMuted(mode: AppearanceMode) -> Color {
+        switch mode {
+        case .dark, .pitchBlack: return Color.white.opacity(0.40)
+        case .light: return Color.black.opacity(0.38)
+        }
+    }
 }
 
 struct ModernCard<Content: View>: View {
     var cornerRadius: CGFloat = 14
+    var mode: AppearanceMode = .dark
     @ViewBuilder var content: Content
     
     var body: some View {
         content
             .background(
                 RoundedRectangle(cornerRadius: cornerRadius)
-                    .fill(UniformDesign.bgCard)
+                    .fill(UniformDesign.bgCard(mode: mode))
                     .overlay(
                         RoundedRectangle(cornerRadius: cornerRadius)
-                            .stroke(UniformDesign.borderSubtle, lineWidth: 1)
+                            .stroke(UniformDesign.borderSubtle(mode: mode), lineWidth: 1)
                     )
             )
     }
@@ -968,22 +1129,22 @@ struct ModernButton: View {
             ZStack {
                 if isPrimary {
                     Circle()
-                        .fill(engine.currentAccent.color)
+                        .fill(engine.activeAccentColor)
                         .frame(width: size, height: size)
                     Image(systemName: icon)
                         .font(.system(size: iconSize, weight: .bold))
-                        .foregroundColor(engine.currentAccent == .white ? .black : .white)
+                        .foregroundColor(.black)
                 } else {
                     Circle()
-                        .fill(active ? engine.currentAccent.color.opacity(0.25) : (isHovered ? Color.white.opacity(0.1) : Color.white.opacity(0.04)))
+                        .fill(active ? engine.activeAccentColor.opacity(0.25) : (isHovered ? Color.white.opacity(0.1) : Color.white.opacity(0.04)))
                         .frame(width: size, height: size)
                         .overlay(
                             Circle()
-                                .stroke(active ? engine.currentAccent.color.opacity(0.5) : UniformDesign.borderSubtle, lineWidth: 1)
+                                .stroke(active ? engine.activeAccentColor.opacity(0.5) : UniformDesign.borderSubtle(mode: engine.appearanceMode), lineWidth: 1)
                         )
                     Image(systemName: icon)
                         .font(.system(size: iconSize, weight: .medium))
-                        .foregroundColor(active ? engine.currentAccent.color : UniformDesign.textSecondary)
+                        .foregroundColor(active ? engine.activeAccentColor : UniformDesign.textSecondary(mode: engine.appearanceMode))
                 }
             }
             .scaleEffect(isHovered ? 1.05 : 1.0)
@@ -1013,7 +1174,7 @@ struct ArtworkView: View {
                     Color(red: 0.18, green: 0.18, blue: 0.20)
                     Image(systemName: "music.note")
                         .font(.system(size: size * 0.35, weight: .light))
-                        .foregroundColor(UniformDesign.textMuted)
+                        .foregroundColor(.white.opacity(0.4))
                 }
             }
         }
@@ -1021,7 +1182,7 @@ struct ArtworkView: View {
         .cornerRadius(10)
         .overlay(
             RoundedRectangle(cornerRadius: 10)
-                .stroke(isPlaying ? accentColor.opacity(0.4) : UniformDesign.borderSubtle, lineWidth: 1)
+                .stroke(isPlaying ? accentColor.opacity(0.4) : Color.white.opacity(0.1), lineWidth: 1)
         )
         .shadow(color: isPlaying ? accentColor.opacity(0.35) : Color.black.opacity(0.35), radius: isPlaying ? 14 : 8, x: 0, y: 5)
         .scaleEffect(isPlaying ? 1.02 : 1.0)
@@ -1046,6 +1207,83 @@ struct ModernVisualizerView: View {
     }
 }
 
+// MARK: - Menu Bar Popup HUD View
+
+struct StatusBarPopoverView: View {
+    @ObservedObject var engine: AudioEngine
+    
+    var body: some View {
+        VStack(spacing: 14) {
+            HStack(spacing: 12) {
+                ArtworkView(artwork: engine.currentTrack?.artwork, size: 54, isPlaying: engine.isPlaying, accentColor: engine.activeAccentColor)
+                
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(engine.currentTrack?.title ?? "No Track Playing")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
+                        .lineLimit(1)
+                    
+                    Text(engine.currentTrack?.artist ?? "San Music Player")
+                        .font(.system(size: 11))
+                        .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
+                        .lineLimit(1)
+                    
+                    if let track = engine.currentTrack {
+                        Text(track.audioBadgeText)
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundColor(engine.activeAccentColor)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer()
+            }
+            
+            ModernVisualizerView(levels: engine.visualizerLevels, accentColor: engine.activeAccentColor)
+            
+            HStack(spacing: 14) {
+                Button(action: { engine.previousTrack() }) {
+                    Image(systemName: "backward.fill")
+                        .font(.system(size: 14))
+                        .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
+                }.buttonStyle(PlainButtonStyle())
+                
+                Button(action: { engine.togglePlay() }) {
+                    ZStack {
+                        Circle()
+                            .fill(engine.activeAccentColor)
+                            .frame(width: 32, height: 32)
+                        Image(systemName: engine.isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(.black)
+                    }
+                }.buttonStyle(PlainButtonStyle())
+                
+                Button(action: { engine.nextTrack() }) {
+                    Image(systemName: "forward.fill")
+                        .font(.system(size: 14))
+                        .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
+                }.buttonStyle(PlainButtonStyle())
+                
+                Spacer()
+                
+                Button(action: {
+                    NSApp.activate(ignoringOtherApps: true)
+                    if let window = NSApp.windows.first {
+                        window.makeKeyAndOrderFront(nil)
+                    }
+                }) {
+                    Text("Open San")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(engine.activeAccentColor)
+                }.buttonStyle(PlainButtonStyle())
+            }
+        }
+        .padding(14)
+        .frame(width: 280)
+        .background(UniformDesign.bgCard(mode: engine.appearanceMode))
+    }
+}
+
 // MARK: - Play Queue Drawer Sheet
 
 struct PlayQueueDrawerSheet: View {
@@ -1057,10 +1295,10 @@ struct PlayQueueDrawerSheet: View {
                 HStack(spacing: 8) {
                     Image(systemName: "list.bullet.indent")
                         .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(engine.currentAccent.color)
+                        .foregroundColor(engine.activeAccentColor)
                     Text("Up Next Play Queue")
                         .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(.white)
+                        .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                 }
                 
                 Spacer()
@@ -1077,7 +1315,7 @@ struct PlayQueueDrawerSheet: View {
                 Button(action: { engine.showQueueDrawer = false }) {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 18))
-                        .foregroundColor(UniformDesign.textMuted)
+                        .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
                 }
                 .buttonStyle(PlainButtonStyle())
             }
@@ -1087,13 +1325,13 @@ struct PlayQueueDrawerSheet: View {
                     Spacer()
                     Image(systemName: "music.note.list")
                         .font(.system(size: 36))
-                        .foregroundColor(UniformDesign.textMuted)
+                        .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
                     Text("Queue is empty")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(UniformDesign.textPrimary)
+                        .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                     Text("Right-click or tap 'Play Next' / 'Add to Queue' on any song to add it here.")
                         .font(.system(size: 12))
-                        .foregroundColor(UniformDesign.textMuted)
+                        .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 20)
                     Spacer()
@@ -1106,7 +1344,7 @@ struct PlayQueueDrawerSheet: View {
                             HStack(spacing: 12) {
                                 Text("\(index + 1)")
                                     .font(.system(size: 12, design: .monospaced))
-                                    .foregroundColor(UniformDesign.textMuted)
+                                    .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
                                     .frame(width: 20, alignment: .trailing)
                                 
                                 ArtworkView(artwork: track.artwork, size: 30)
@@ -1114,11 +1352,11 @@ struct PlayQueueDrawerSheet: View {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(track.title)
                                         .font(.system(size: 13, weight: .medium))
-                                        .foregroundColor(UniformDesign.textPrimary)
+                                        .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                                         .lineLimit(1)
                                     Text(track.artist)
                                         .font(.system(size: 11))
-                                        .foregroundColor(UniformDesign.textSecondary)
+                                        .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
                                         .lineLimit(1)
                                 }
                                 
@@ -1135,7 +1373,7 @@ struct PlayQueueDrawerSheet: View {
                             .padding(.vertical, 6)
                             .background(
                                 RoundedRectangle(cornerRadius: 8)
-                                    .fill(UniformDesign.hoverHighlight)
+                                    .fill(UniformDesign.hoverHighlight(mode: engine.appearanceMode))
                             )
                         }
                     }
@@ -1145,7 +1383,7 @@ struct PlayQueueDrawerSheet: View {
         }
         .padding(20)
         .frame(width: 420)
-        .background(UniformDesign.bgCard)
+        .background(UniformDesign.bgCard(mode: engine.appearanceMode))
         .cornerRadius(16)
         .shadow(radius: 20)
     }
@@ -1162,12 +1400,12 @@ struct TrackInspectorView: View {
             HStack {
                 Text("Track Inspector")
                     .font(.system(size: 16, weight: .bold))
-                    .foregroundColor(.white)
+                    .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                 Spacer()
                 Button(action: { engine.inspectingTrack = nil }) {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 18))
-                        .foregroundColor(UniformDesign.textMuted)
+                        .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
                 }.buttonStyle(PlainButtonStyle())
             }
             
@@ -1177,51 +1415,51 @@ struct TrackInspectorView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(track.title)
                         .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(.white)
+                        .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                     Text(track.artist)
                         .font(.system(size: 13))
-                        .foregroundColor(UniformDesign.textSecondary)
+                        .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
                     Text(track.album)
                         .font(.system(size: 12))
-                        .foregroundColor(UniformDesign.textMuted)
+                        .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
                     
                     Text(track.audioBadgeText)
                         .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                        .foregroundColor(engine.currentAccent.color)
+                        .foregroundColor(engine.activeAccentColor)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 3)
-                        .background(Capsule().fill(engine.currentAccent.color.opacity(0.15)))
+                        .background(Capsule().fill(engine.activeAccentColor.opacity(0.15)))
                         .padding(.top, 4)
                 }
             }
             
-            ModernCard(cornerRadius: 12) {
+            ModernCard(cornerRadius: 12, mode: engine.appearanceMode) {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Text("File Size:")
-                            .foregroundColor(UniformDesign.textMuted)
+                            .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
                         Spacer()
                         Text(track.fileSizeString)
-                            .foregroundColor(.white)
+                            .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                     }
-                    Divider().background(UniformDesign.borderSubtle)
+                    Divider().background(UniformDesign.borderSubtle(mode: engine.appearanceMode))
                     
                     HStack {
                         Text("Channels:")
-                            .foregroundColor(UniformDesign.textMuted)
+                            .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
                         Spacer()
                         Text(track.channelCount == 2 ? "Stereo (2 Channels)" : "Mono (1 Channel)")
-                            .foregroundColor(.white)
+                            .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                     }
-                    Divider().background(UniformDesign.borderSubtle)
+                    Divider().background(UniformDesign.borderSubtle(mode: engine.appearanceMode))
                     
                     HStack {
                         Text("File Path:")
-                            .foregroundColor(UniformDesign.textMuted)
+                            .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
                         Spacer()
                         Text(track.url.path)
                             .font(.system(size: 10, design: .monospaced))
-                            .foregroundColor(.white)
+                            .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                             .lineLimit(1)
                     }
                 }
@@ -1231,7 +1469,7 @@ struct TrackInspectorView: View {
         }
         .padding(24)
         .frame(width: 480)
-        .background(UniformDesign.bgCard)
+        .background(UniformDesign.bgCard(mode: engine.appearanceMode))
         .cornerRadius(16)
         .shadow(radius: 20)
     }
@@ -1244,7 +1482,7 @@ struct MiniPlayerView: View {
     
     var body: some View {
         ZStack {
-            UniformDesign.bgSidebar
+            UniformDesign.bgSidebar(mode: engine.appearanceMode)
                 .ignoresSafeArea()
             
             HStack(spacing: 12) {
@@ -1253,12 +1491,12 @@ struct MiniPlayerView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(engine.currentTrack?.title ?? "No Song Playing")
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(UniformDesign.textPrimary)
+                        .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                         .lineLimit(1)
                     
                     Text(engine.currentTrack?.artist ?? "Select a track")
                         .font(.system(size: 11))
-                        .foregroundColor(UniformDesign.textSecondary)
+                        .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
                         .lineLimit(1)
                     
                     // Transport controls
@@ -1266,19 +1504,19 @@ struct MiniPlayerView: View {
                         Button(action: { engine.previousTrack() }) {
                             Image(systemName: "backward.fill")
                                 .font(.system(size: 12))
-                                .foregroundColor(UniformDesign.textPrimary)
+                                .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                         }.buttonStyle(PlainButtonStyle())
                         
                         Button(action: { engine.togglePlay() }) {
                             Image(systemName: engine.isPlaying ? "pause.fill" : "play.fill")
                                 .font(.system(size: 14, weight: .bold))
-                                .foregroundColor(engine.currentAccent.color)
+                                .foregroundColor(engine.activeAccentColor)
                         }.buttonStyle(PlainButtonStyle())
                         
                         Button(action: { engine.nextTrack() }) {
                             Image(systemName: "forward.fill")
                                 .font(.system(size: 12))
-                                .foregroundColor(UniformDesign.textPrimary)
+                                .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                         }.buttonStyle(PlainButtonStyle())
                         
                         Spacer()
@@ -1286,7 +1524,7 @@ struct MiniPlayerView: View {
                         Button(action: { engine.toggleMiniPlayer() }) {
                             Image(systemName: "rectangle.expand.vertical")
                                 .font(.system(size: 11))
-                                .foregroundColor(UniformDesign.textSecondary)
+                                .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
                         }.buttonStyle(PlainButtonStyle())
                     }
                     .padding(.top, 2)
@@ -1307,25 +1545,25 @@ struct EqualizerView: View {
         VStack(alignment: .leading, spacing: 20) {
             Text("Graphic Equalizer & Audio Controls")
                 .font(.system(size: 18, weight: .bold))
-                .foregroundColor(UniformDesign.textPrimary)
+                .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
             
             // Audio Controls (Speed & Pan)
-            ModernCard(cornerRadius: 14) {
+            ModernCard(cornerRadius: 14, mode: engine.appearanceMode) {
                 HStack(spacing: 32) {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Playback Speed: \(String(format: "%.2fx", engine.playbackRate))")
                             .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(UniformDesign.textPrimary)
+                            .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                         
                         HStack(spacing: 8) {
                             ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { rate in
                                 Button(action: { engine.playbackRate = Float(rate) }) {
                                     Text(String(format: "%.2fx", rate))
                                         .font(.system(size: 11, weight: .medium))
-                                        .foregroundColor(engine.playbackRate == Float(rate) ? .black : .white)
+                                        .foregroundColor(engine.playbackRate == Float(rate) ? .black : UniformDesign.textPrimary(mode: engine.appearanceMode))
                                         .padding(.horizontal, 8)
                                         .padding(.vertical, 4)
-                                        .background(Capsule().fill(engine.playbackRate == Float(rate) ? engine.currentAccent.color : Color.white.opacity(0.08)))
+                                        .background(Capsule().fill(engine.playbackRate == Float(rate) ? engine.activeAccentColor : UniformDesign.hoverHighlight(mode: engine.appearanceMode)))
                                 }
                                 .buttonStyle(PlainButtonStyle())
                             }
@@ -1337,18 +1575,18 @@ struct EqualizerView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Stereo Balance (Pan): \(String(format: "%.1f", engine.pan))")
                             .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(UniformDesign.textPrimary)
+                            .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                         
                         HStack(spacing: 8) {
                             Text("L")
                                 .font(.system(size: 11, weight: .bold))
-                                .foregroundColor(UniformDesign.textMuted)
+                                .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
                             Slider(value: $engine.pan, in: -1.0...1.0)
-                                .accentColor(engine.currentAccent.color)
+                                .accentColor(engine.activeAccentColor)
                                 .frame(width: 120)
                             Text("R")
                                 .font(.system(size: 11, weight: .bold))
-                                .foregroundColor(UniformDesign.textMuted)
+                                .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
                         }
                     }
                 }
@@ -1361,12 +1599,12 @@ struct EqualizerView: View {
                     Button(action: { engine.applyEQPreset(preset) }) {
                         Text(preset.rawValue)
                             .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(engine.selectedEQPreset == preset ? .black : UniformDesign.textPrimary)
+                            .foregroundColor(engine.selectedEQPreset == preset ? .black : UniformDesign.textPrimary(mode: engine.appearanceMode))
                             .padding(.horizontal, 14)
                             .padding(.vertical, 6)
                             .background(
                                 Capsule()
-                                    .fill(engine.selectedEQPreset == preset ? engine.currentAccent.color : Color.white.opacity(0.08))
+                                    .fill(engine.selectedEQPreset == preset ? engine.activeAccentColor : UniformDesign.hoverHighlight(mode: engine.appearanceMode))
                             )
                     }
                     .buttonStyle(PlainButtonStyle())
@@ -1374,13 +1612,13 @@ struct EqualizerView: View {
             }
             
             // EQ Band Sliders
-            ModernCard(cornerRadius: 14) {
+            ModernCard(cornerRadius: 14, mode: engine.appearanceMode) {
                 HStack(spacing: 36) {
                     ForEach(0..<5, id: \.self) { index in
                         VStack(spacing: 14) {
                             Text(String(format: "+%.0fdB", engine.eqGains[index]))
                                 .font(.system(size: 11, design: .monospaced))
-                                .foregroundColor(UniformDesign.textSecondary)
+                                .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
                             
                             Slider(value: Binding(
                                 get: { Double(engine.eqGains[index]) },
@@ -1389,13 +1627,13 @@ struct EqualizerView: View {
                                     engine.saveLibrary()
                                 }
                             ), in: -12...12)
-                            .accentColor(engine.currentAccent.color)
+                            .accentColor(engine.activeAccentColor)
                             .rotationEffect(.degrees(-90))
                             .frame(width: 140, height: 40)
                             
                             Text(bandLabels[index])
                                 .font(.system(size: 11, weight: .semibold))
-                                .foregroundColor(UniformDesign.textSecondary)
+                                .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
                         }
                     }
                 }
@@ -1425,7 +1663,7 @@ struct AlbumsGridView: View {
                                 Text("Back to Albums")
                             }
                             .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(engine.currentAccent.color)
+                            .foregroundColor(engine.activeAccentColor)
                         }
                         .buttonStyle(PlainButtonStyle())
                         
@@ -1433,18 +1671,18 @@ struct AlbumsGridView: View {
                     }
                     
                     HStack(spacing: 24) {
-                        ArtworkView(artwork: selected.artwork, size: 140, isPlaying: engine.currentTrack?.album == selected.name && engine.isPlaying, accentColor: engine.currentAccent.color)
+                        ArtworkView(artwork: selected.artwork, size: 140, isPlaying: engine.currentTrack?.album == selected.name && engine.isPlaying, accentColor: engine.activeAccentColor)
                         
                         VStack(alignment: .leading, spacing: 6) {
                             Text(selected.name)
                                 .font(.system(size: 22, weight: .bold))
-                                .foregroundColor(UniformDesign.textPrimary)
+                                .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                             Text(selected.artist)
                                 .font(.system(size: 15, weight: .medium))
-                                .foregroundColor(UniformDesign.textSecondary)
+                                .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
                             Text("\(selected.tracks.count) tracks")
                                 .font(.system(size: 12))
-                                .foregroundColor(UniformDesign.textMuted)
+                                .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
                             
                             Button(action: {
                                 if let first = selected.tracks.first {
@@ -1459,7 +1697,7 @@ struct AlbumsGridView: View {
                                 .foregroundColor(.black)
                                 .padding(.horizontal, 18)
                                 .padding(.vertical, 8)
-                                .background(Capsule().fill(engine.currentAccent.color))
+                                .background(Capsule().fill(engine.activeAccentColor))
                             }
                             .buttonStyle(PlainButtonStyle())
                             .padding(.top, 6)
@@ -1474,17 +1712,17 @@ struct AlbumsGridView: View {
                             HStack(spacing: 14) {
                                 Text("\(index + 1)")
                                     .font(.system(size: 12, design: .monospaced))
-                                    .foregroundColor(UniformDesign.textMuted)
+                                    .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
                                     .frame(width: 24, alignment: .trailing)
                                 
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(track.title)
                                         .font(.system(size: 13, weight: .medium))
-                                        .foregroundColor(isSelected ? engine.currentAccent.color : UniformDesign.textPrimary)
+                                        .foregroundColor(isSelected ? engine.activeAccentColor : UniformDesign.textPrimary(mode: engine.appearanceMode))
                                         .lineLimit(1)
                                     Text(track.artist)
                                         .font(.system(size: 11))
-                                        .foregroundColor(UniformDesign.textSecondary)
+                                        .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
                                         .lineLimit(1)
                                 }
                                 
@@ -1492,12 +1730,12 @@ struct AlbumsGridView: View {
                                 
                                 Text(formatTime(track.duration))
                                     .font(.system(size: 12, design: .monospaced))
-                                    .foregroundColor(UniformDesign.textMuted)
+                                    .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
                                 
                                 Button(action: { engine.loadAndPlay(track: track) }) {
                                     Image(systemName: isSelected && engine.isPlaying ? "pause.fill" : "play.fill")
                                         .font(.system(size: 12))
-                                        .foregroundColor(UniformDesign.textPrimary)
+                                        .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                                         .padding(6)
                                 }
                                 .buttonStyle(PlainButtonStyle())
@@ -1506,7 +1744,7 @@ struct AlbumsGridView: View {
                             .padding(.vertical, 6)
                             .background(
                                 RoundedRectangle(cornerRadius: 8)
-                                    .fill(isSelected ? UniformDesign.activeHighlight : (isHovered ? UniformDesign.hoverHighlight : Color.clear))
+                                    .fill(isSelected ? UniformDesign.activeHighlight(mode: engine.appearanceMode) : (isHovered ? UniformDesign.hoverHighlight(mode: engine.appearanceMode) : Color.clear))
                             )
                             .contentShape(Rectangle())
                             .onTapGesture {
@@ -1527,16 +1765,16 @@ struct AlbumsGridView: View {
                 // Album Cards Grid
                 Text("Albums Library (\(engine.albumsList.count))")
                     .font(.system(size: 18, weight: .bold))
-                    .foregroundColor(UniformDesign.textPrimary)
+                    .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                 
                 if engine.albumsList.isEmpty {
-                    ModernCard(cornerRadius: 14) {
+                    ModernCard(cornerRadius: 14, mode: engine.appearanceMode) {
                         VStack(spacing: 12) {
                             Image(systemName: "square.grid.2x2.fill")
                                 .font(.system(size: 36))
-                                .foregroundColor(UniformDesign.textMuted)
+                                .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
                             Text("No albums found in library")
-                                .foregroundColor(UniformDesign.textSecondary)
+                                .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
                         }
                         .padding(40)
                         .frame(maxWidth: .infinity)
@@ -1546,29 +1784,29 @@ struct AlbumsGridView: View {
                         ForEach(engine.albumsList) { albumGroup in
                             Button(action: { engine.selectedAlbum = albumGroup }) {
                                 VStack(alignment: .leading, spacing: 10) {
-                                    ArtworkView(artwork: albumGroup.artwork, size: 160, isPlaying: engine.currentTrack?.album == albumGroup.name && engine.isPlaying, accentColor: engine.currentAccent.color)
+                                    ArtworkView(artwork: albumGroup.artwork, size: 160, isPlaying: engine.currentTrack?.album == albumGroup.name && engine.isPlaying, accentColor: engine.activeAccentColor)
                                     
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(albumGroup.name)
                                             .font(.system(size: 13, weight: .bold))
-                                            .foregroundColor(UniformDesign.textPrimary)
+                                            .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                                             .lineLimit(1)
                                         Text(albumGroup.artist)
                                             .font(.system(size: 11))
-                                            .foregroundColor(UniformDesign.textSecondary)
+                                            .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
                                             .lineLimit(1)
                                         Text("\(albumGroup.tracks.count) tracks")
                                             .font(.system(size: 10))
-                                            .foregroundColor(UniformDesign.textMuted)
+                                            .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
                                     }
                                 }
                                 .padding(12)
                                 .background(
                                     RoundedRectangle(cornerRadius: 12)
-                                        .fill(UniformDesign.bgCard)
+                                        .fill(UniformDesign.bgCard(mode: engine.appearanceMode))
                                         .overlay(
                                             RoundedRectangle(cornerRadius: 12)
-                                                .stroke(UniformDesign.borderSubtle, lineWidth: 1)
+                                                .stroke(UniformDesign.borderSubtle(mode: engine.appearanceMode), lineWidth: 1)
                                         )
                                 )
                             }
@@ -1600,17 +1838,17 @@ struct FolderModeView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Folder Mode")
                         .font(.system(size: 18, weight: .bold))
-                        .foregroundColor(UniformDesign.textPrimary)
+                        .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                     
                     if let folder = engine.selectedFolderURL {
                         Text(folder.path)
                             .font(.system(size: 12, design: .monospaced))
-                            .foregroundColor(UniformDesign.textSecondary)
+                            .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
                             .lineLimit(1)
                     } else {
                         Text("No folder selected")
                             .font(.system(size: 12))
-                            .foregroundColor(UniformDesign.textMuted)
+                            .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
                     }
                 }
                 
@@ -1627,24 +1865,24 @@ struct FolderModeView: View {
                     .padding(.vertical, 8)
                     .background(
                         RoundedRectangle(cornerRadius: 8)
-                            .fill(engine.currentAccent.color.opacity(0.8))
+                            .fill(engine.activeAccentColor.opacity(0.8))
                     )
                 }
                 .buttonStyle(PlainButtonStyle())
             }
             
             if engine.folderTracks.isEmpty {
-                ModernCard(cornerRadius: 14) {
+                ModernCard(cornerRadius: 14, mode: engine.appearanceMode) {
                     VStack(spacing: 14) {
                         Image(systemName: "folder.fill")
                             .font(.system(size: 40))
-                            .foregroundColor(UniformDesign.textMuted)
+                            .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
                         Text("Select a folder to play music directly from it")
                             .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(UniformDesign.textPrimary)
+                            .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                         Text("San will scan all MP3, WAV, FLAC, M4A files in the selected folder and subfolders.")
                             .font(.system(size: 12))
-                            .foregroundColor(UniformDesign.textMuted)
+                            .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
                     }
                     .padding(40)
                     .frame(maxWidth: .infinity)
@@ -1658,7 +1896,7 @@ struct FolderModeView: View {
                         HStack(spacing: 14) {
                             Text("\(index + 1)")
                                 .font(.system(size: 12, design: .monospaced))
-                                .foregroundColor(UniformDesign.textMuted)
+                                .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
                                 .frame(width: 24, alignment: .trailing)
                             
                             ArtworkView(artwork: track.artwork, size: 32)
@@ -1666,11 +1904,11 @@ struct FolderModeView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(track.title)
                                     .font(.system(size: 13, weight: .medium))
-                                    .foregroundColor(isSelected ? engine.currentAccent.color : UniformDesign.textPrimary)
+                                    .foregroundColor(isSelected ? engine.activeAccentColor : UniformDesign.textPrimary(mode: engine.appearanceMode))
                                     .lineLimit(1)
                                 Text(track.artist)
                                     .font(.system(size: 11))
-                                    .foregroundColor(UniformDesign.textSecondary)
+                                    .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
                                     .lineLimit(1)
                             }
                             
@@ -1678,16 +1916,16 @@ struct FolderModeView: View {
                             
                             Text(track.audioBadgeText)
                                 .font(.system(size: 10, design: .monospaced))
-                                .foregroundColor(UniformDesign.textMuted)
+                                .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
                             
                             Text(formatTime(track.duration))
                                 .font(.system(size: 12, design: .monospaced))
-                                .foregroundColor(UniformDesign.textMuted)
+                                .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
                             
                             Button(action: { engine.loadAndPlay(track: track) }) {
                                 Image(systemName: isSelected && engine.isPlaying ? "pause.fill" : "play.fill")
                                     .font(.system(size: 12))
-                                    .foregroundColor(UniformDesign.textPrimary)
+                                    .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                                     .padding(6)
                             }
                             .buttonStyle(PlainButtonStyle())
@@ -1696,7 +1934,7 @@ struct FolderModeView: View {
                         .padding(.vertical, 6)
                         .background(
                             RoundedRectangle(cornerRadius: 8)
-                                .fill(isSelected ? UniformDesign.activeHighlight : (isHovered ? UniformDesign.hoverHighlight : Color.clear))
+                                .fill(isSelected ? UniformDesign.activeHighlight(mode: engine.appearanceMode) : (isHovered ? UniformDesign.hoverHighlight(mode: engine.appearanceMode) : Color.clear))
                         )
                         .contentShape(Rectangle())
                         .onTapGesture {
@@ -1735,51 +1973,70 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 24) {
             Text("Settings & Customization")
                 .font(.system(size: 18, weight: .bold))
-                .foregroundColor(UniformDesign.textPrimary)
+                .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
             
-            // Sleep Timer Section
-            ModernCard(cornerRadius: 14) {
-                VStack(alignment: .leading, spacing: 14) {
-                    HStack {
-                        Text("Sleep Timer")
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundColor(UniformDesign.textPrimary)
-                        Spacer()
-                        if engine.sleepTimerRemainingSeconds > 0 {
-                            Text("Stopping in \(engine.sleepTimerRemainingSeconds / 60):\(String(format: "%02d", engine.sleepTimerRemainingSeconds % 60))")
-                                .font(.system(size: 12, design: .monospaced))
-                                .foregroundColor(engine.currentAccent.color)
-                        }
-                    }
+            // Appearance Mode Selector (Dark, Pitch Black, Light)
+            ModernCard(cornerRadius: 14, mode: engine.appearanceMode) {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Appearance Mode")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                     
-                    HStack(spacing: 10) {
-                        ForEach([0, 15, 30, 45, 60, -1], id: \.self) { mins in
-                            Button(action: { engine.setSleepTimer(minutes: mins) }) {
-                                Text(mins == 0 ? "Off" : (mins == -1 ? "End of Track" : "\(mins) mins"))
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(engine.sleepTimerMinutes == mins ? .black : UniformDesign.textPrimary)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 6)
-                                    .background(Capsule().fill(engine.sleepTimerMinutes == mins ? engine.currentAccent.color : Color.white.opacity(0.08)))
+                    HStack(spacing: 12) {
+                        ForEach(AppearanceMode.allCases) { mode in
+                            Button(action: {
+                                engine.appearanceMode = mode
+                                engine.saveLibrary()
+                            }) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: mode == .light ? "sun.max.fill" : (mode == .pitchBlack ? "moon.stars.fill" : "moon.fill"))
+                                    Text(mode.rawValue)
+                                }
+                                .font(.system(size: 12, weight: engine.appearanceMode == mode ? .bold : .medium))
+                                .foregroundColor(engine.appearanceMode == mode ? .black : UniformDesign.textPrimary(mode: engine.appearanceMode))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(
+                                    Capsule().fill(engine.appearanceMode == mode ? engine.activeAccentColor : UniformDesign.hoverHighlight(mode: engine.appearanceMode))
+                                )
                             }
                             .buttonStyle(PlainButtonStyle())
                         }
                     }
+                    
+                    Toggle(isOn: Binding(
+                        get: { engine.useDynamicArtworkTheme },
+                        set: {
+                            engine.useDynamicArtworkTheme = $0
+                            engine.saveLibrary()
+                        }
+                    )) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Dynamic Album Artwork Theme")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
+                            Text("Automatically sample vibrant accent colors from playing album artwork.")
+                                .font(.system(size: 11))
+                                .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
+                        }
+                    }
+                    .toggleStyle(SwitchToggleStyle(tint: engine.activeAccentColor))
+                    .padding(.top, 6)
                 }
                 .padding(20)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             
             // Accent Color Picker Section
-            ModernCard(cornerRadius: 14) {
+            ModernCard(cornerRadius: 14, mode: engine.appearanceMode) {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("Accent Color Theme")
+                    Text("Fallback Accent Theme")
                         .font(.system(size: 14, weight: .bold))
-                        .foregroundColor(UniformDesign.textPrimary)
+                        .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                     
-                    Text("Select your preferred UI highlight accent color:")
+                    Text("Select your accent highlight color when dynamic artwork theme is off:")
                         .font(.system(size: 12))
-                        .foregroundColor(UniformDesign.textSecondary)
+                        .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
                     
                     HStack(spacing: 16) {
                         ForEach(AccentTheme.allCases) { theme in
@@ -1792,17 +2049,17 @@ struct SettingsView: View {
                                     
                                     Text(theme.rawValue)
                                         .font(.system(size: 12, weight: engine.currentAccent == theme ? .bold : .regular))
-                                        .foregroundColor(engine.currentAccent == theme ? .white : UniformDesign.textSecondary)
+                                        .foregroundColor(engine.currentAccent == theme ? UniformDesign.textPrimary(mode: engine.appearanceMode) : UniformDesign.textSecondary(mode: engine.appearanceMode))
                                 }
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 8)
                                 .background(
                                     RoundedRectangle(cornerRadius: 8)
-                                        .fill(engine.currentAccent == theme ? UniformDesign.activeHighlight : Color.white.opacity(0.04))
+                                        .fill(engine.currentAccent == theme ? UniformDesign.activeHighlight(mode: engine.appearanceMode) : UniformDesign.hoverHighlight(mode: engine.appearanceMode))
                                 )
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 8)
-                                        .stroke(engine.currentAccent == theme ? theme.color : UniformDesign.borderSubtle, lineWidth: 1)
+                                        .stroke(engine.currentAccent == theme ? theme.color : UniformDesign.borderSubtle(mode: engine.appearanceMode), lineWidth: 1)
                                 )
                             }
                             .buttonStyle(PlainButtonStyle())
@@ -1813,47 +2070,80 @@ struct SettingsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             
+            // Sleep Timer Section
+            ModernCard(cornerRadius: 14, mode: engine.appearanceMode) {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack {
+                        Text("Sleep Timer")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
+                        Spacer()
+                        if engine.sleepTimerRemainingSeconds > 0 {
+                            Text("Stopping in \(engine.sleepTimerRemainingSeconds / 60):\(String(format: "%02d", engine.sleepTimerRemainingSeconds % 60))")
+                                .font(.system(size: 12, design: .monospaced))
+                                .foregroundColor(engine.activeAccentColor)
+                        }
+                    }
+                    
+                    HStack(spacing: 10) {
+                        ForEach([0, 15, 30, 45, 60, -1], id: \.self) { mins in
+                            Button(action: { engine.setSleepTimer(minutes: mins) }) {
+                                Text(mins == 0 ? "Off" : (mins == -1 ? "End of Track" : "\(mins) mins"))
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(engine.sleepTimerMinutes == mins ? .black : UniformDesign.textPrimary(mode: engine.appearanceMode))
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(Capsule().fill(engine.sleepTimerMinutes == mins ? engine.activeAccentColor : UniformDesign.hoverHighlight(mode: engine.appearanceMode)))
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                    }
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            
             // About & System Engine Info
-            ModernCard(cornerRadius: 14) {
+            ModernCard(cornerRadius: 14, mode: engine.appearanceMode) {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("System Information")
                         .font(.system(size: 14, weight: .bold))
-                        .foregroundColor(UniformDesign.textPrimary)
+                        .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                     
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
                             Text("Audio Engine:")
-                                .foregroundColor(UniformDesign.textSecondary)
+                                .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
                             Spacer()
                             Text("Apple AVFoundation (Hardware Decoded)")
-                                .foregroundColor(.white)
+                                .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                         }
-                        Divider().background(UniformDesign.borderSubtle)
+                        Divider().background(UniformDesign.borderSubtle(mode: engine.appearanceMode))
                         
                         HStack {
                             Text("Engine Status:")
-                                .foregroundColor(UniformDesign.textSecondary)
+                                .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
                             Spacer()
                             Text("Active (Local)")
-                                .foregroundColor(engine.currentAccent.color)
+                                .foregroundColor(engine.activeAccentColor)
                         }
-                        Divider().background(UniformDesign.borderSubtle)
+                        Divider().background(UniformDesign.borderSubtle(mode: engine.appearanceMode))
                         
                         HStack {
                             Text("Architecture:")
-                                .foregroundColor(UniformDesign.textSecondary)
+                                .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
                             Spacer()
                             Text("Native Apple Silicon (ARM64)")
-                                .foregroundColor(.white)
+                                .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                         }
-                        Divider().background(UniformDesign.borderSubtle)
+                        Divider().background(UniformDesign.borderSubtle(mode: engine.appearanceMode))
                         
                         HStack {
                             Text("Supported Formats:")
-                                .foregroundColor(UniformDesign.textSecondary)
+                                .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
                             Spacer()
                             Text("FLAC, WAV, MP3, AAC, M4A")
-                                .foregroundColor(.white)
+                                .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                         }
                     }
                     .font(.system(size: 12, design: .monospaced))
@@ -1904,7 +2194,7 @@ struct ContentView: View {
             } else {
                 ZStack {
                     // Modern Solid Dark Background
-                    UniformDesign.bgMain
+                    UniformDesign.bgMain(mode: engine.appearanceMode)
                         .ignoresSafeArea()
                     
                     // Main Window Content Layout
@@ -1915,11 +2205,11 @@ struct ContentView: View {
                             HStack(spacing: 12) {
                                 Image(systemName: "music.note.house.fill")
                                     .font(.system(size: 18, weight: .bold))
-                                    .foregroundColor(engine.currentAccent.color)
+                                    .foregroundColor(engine.activeAccentColor)
                                 
                                 Text("SAN")
                                     .font(.system(size: 18, weight: .bold))
-                                    .foregroundColor(UniformDesign.textPrimary)
+                                    .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                             }
                             .padding(.horizontal, 20)
                             .padding(.top, 24)
@@ -1935,17 +2225,17 @@ struct ContentView: View {
                                         HStack(spacing: 12) {
                                             Image(systemName: item.iconName)
                                                 .font(.system(size: 15, weight: .medium))
-                                                .foregroundColor(engine.selectedNav == item ? engine.currentAccent.color : UniformDesign.textMuted)
+                                                .foregroundColor(engine.selectedNav == item ? engine.activeAccentColor : UniformDesign.textMuted(mode: engine.appearanceMode))
                                             Text(item.rawValue)
                                                 .font(.system(size: 13, weight: engine.selectedNav == item ? .semibold : .medium))
-                                                .foregroundColor(engine.selectedNav == item ? .white : UniformDesign.textSecondary)
+                                                .foregroundColor(engine.selectedNav == item ? UniformDesign.textPrimary(mode: engine.appearanceMode) : UniformDesign.textSecondary(mode: engine.appearanceMode))
                                             Spacer()
                                         }
                                         .padding(.vertical, 8)
                                         .padding(.horizontal, 14)
                                         .background(
                                             RoundedRectangle(cornerRadius: 8)
-                                                .fill(engine.selectedNav == item ? UniformDesign.activeHighlight : Color.clear)
+                                                .fill(engine.selectedNav == item ? UniformDesign.activeHighlight(mode: engine.appearanceMode) : Color.clear)
                                         )
                                     }
                                     .buttonStyle(PlainButtonStyle())
@@ -1963,15 +2253,15 @@ struct ContentView: View {
                                     Text("Open Folder")
                                         .font(.system(size: 13, weight: .semibold))
                                 }
-                                .foregroundColor(UniformDesign.textPrimary)
+                                .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 9)
                                 .background(
                                     RoundedRectangle(cornerRadius: 8)
-                                        .fill(Color.white.opacity(0.08))
+                                        .fill(UniformDesign.hoverHighlight(mode: engine.appearanceMode))
                                         .overlay(
                                             RoundedRectangle(cornerRadius: 8)
-                                                .stroke(UniformDesign.borderSubtle, lineWidth: 1)
+                                                .stroke(UniformDesign.borderSubtle(mode: engine.appearanceMode), lineWidth: 1)
                                         )
                                 )
                             }
@@ -1986,15 +2276,15 @@ struct ContentView: View {
                                     Text("Import Music")
                                         .font(.system(size: 13, weight: .semibold))
                                 }
-                                .foregroundColor(UniformDesign.textPrimary)
+                                .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 9)
                                 .background(
                                     RoundedRectangle(cornerRadius: 8)
-                                        .fill(Color.white.opacity(0.08))
+                                        .fill(UniformDesign.hoverHighlight(mode: engine.appearanceMode))
                                         .overlay(
                                             RoundedRectangle(cornerRadius: 8)
-                                                .stroke(UniformDesign.borderSubtle, lineWidth: 1)
+                                                .stroke(UniformDesign.borderSubtle(mode: engine.appearanceMode), lineWidth: 1)
                                         )
                                 )
                             }
@@ -2003,10 +2293,10 @@ struct ContentView: View {
                             .padding(.bottom, 28)
                         }
                         .frame(width: 190)
-                        .background(UniformDesign.bgSidebar)
+                        .background(UniformDesign.bgSidebar(mode: engine.appearanceMode))
                         
                         Rectangle()
-                            .fill(UniformDesign.borderSubtle)
+                            .fill(UniformDesign.borderSubtle(mode: engine.appearanceMode))
                             .frame(width: 1)
                         
                         // MARK: Main Content Workspace
@@ -2015,18 +2305,18 @@ struct ContentView: View {
                             HStack {
                                 HStack(spacing: 10) {
                                     Image(systemName: "magnifyingglass")
-                                        .foregroundColor(UniformDesign.textMuted)
+                                        .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
                                         .font(.system(size: 13))
                                     TextField("Search tracks, artists...", text: $engine.searchText)
                                         .textFieldStyle(PlainTextFieldStyle())
-                                        .foregroundColor(UniformDesign.textPrimary)
+                                        .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                                         .font(.system(size: 13))
                                 }
                                 .padding(.vertical, 7)
                                 .padding(.horizontal, 12)
                                 .background(
                                     RoundedRectangle(cornerRadius: 8)
-                                        .fill(Color.white.opacity(0.06))
+                                        .fill(UniformDesign.hoverHighlight(mode: engine.appearanceMode))
                                 )
                                 .frame(maxWidth: 300)
                                 
@@ -2048,16 +2338,16 @@ struct ContentView: View {
                                         Text("Mini Player")
                                             .font(.system(size: 12, weight: .medium))
                                     }
-                                    .foregroundColor(UniformDesign.textSecondary)
+                                    .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 6)
-                                    .background(Capsule().fill(Color.white.opacity(0.08)))
+                                    .background(Capsule().fill(UniformDesign.hoverHighlight(mode: engine.appearanceMode)))
                                 }
                                 .buttonStyle(PlainButtonStyle())
                                 
                                 Text("\(engine.playlist.count) tracks")
                                     .font(.system(size: 12))
-                                    .foregroundColor(UniformDesign.textMuted)
+                                    .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
                             }
                             .padding(.horizontal, 24)
                             .padding(.top, 18)
@@ -2077,23 +2367,23 @@ struct ContentView: View {
                                     } else {
                                         if engine.selectedNav == .nowPlaying || engine.playlist.isEmpty {
                                             // Now Playing Stage with Hi-Res Badge & Lyrics Toggle
-                                            ModernCard(cornerRadius: 14) {
+                                            ModernCard(cornerRadius: 14, mode: engine.appearanceMode) {
                                                 if let track = engine.currentTrack {
                                                     HStack(alignment: .top, spacing: 28) {
                                                         // Artwork and Track Info
                                                         VStack(alignment: .leading, spacing: 14) {
-                                                            ArtworkView(artwork: track.artwork, size: 160, isPlaying: engine.isPlaying, accentColor: engine.currentAccent.color)
+                                                            ArtworkView(artwork: track.artwork, size: 160, isPlaying: engine.isPlaying, accentColor: engine.activeAccentColor)
                                                             
                                                             HStack {
                                                                 VStack(alignment: .leading, spacing: 4) {
                                                                     Text(track.title)
                                                                         .font(.system(size: 18, weight: .bold))
-                                                                        .foregroundColor(UniformDesign.textPrimary)
+                                                                        .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                                                                         .lineLimit(1)
                                                                     
                                                                     Text(track.artist)
                                                                         .font(.system(size: 13, weight: .medium))
-                                                                        .foregroundColor(UniformDesign.textSecondary)
+                                                                        .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
                                                                         .lineLimit(1)
                                                                 }
                                                                 Spacer()
@@ -2102,7 +2392,7 @@ struct ContentView: View {
                                                                 Button(action: { engine.inspectingTrack = track }) {
                                                                     Image(systemName: "info.circle")
                                                                         .font(.system(size: 14, weight: .medium))
-                                                                        .foregroundColor(UniformDesign.textMuted)
+                                                                        .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
                                                                         .padding(6)
                                                                 }
                                                                 .buttonStyle(PlainButtonStyle())
@@ -2111,9 +2401,9 @@ struct ContentView: View {
                                                                 Button(action: { engine.showLyrics.toggle() }) {
                                                                     Image(systemName: engine.showLyrics ? "text.quote" : "text.alignleft")
                                                                         .font(.system(size: 14, weight: .medium))
-                                                                        .foregroundColor(engine.showLyrics ? engine.currentAccent.color : UniformDesign.textMuted)
+                                                                        .foregroundColor(engine.showLyrics ? engine.activeAccentColor : UniformDesign.textMuted(mode: engine.appearanceMode))
                                                                         .padding(6)
-                                                                        .background(Circle().fill(engine.showLyrics ? engine.currentAccent.color.opacity(0.15) : Color.clear))
+                                                                        .background(Circle().fill(engine.showLyrics ? engine.activeAccentColor.opacity(0.15) : Color.clear))
                                                                 }
                                                                 .buttonStyle(PlainButtonStyle())
                                                                 
@@ -2121,7 +2411,7 @@ struct ContentView: View {
                                                                 Button(action: { engine.toggleFavorite(track: track) }) {
                                                                     Image(systemName: engine.isFavorite(track: track) ? "heart.fill" : "heart")
                                                                         .font(.system(size: 16))
-                                                                        .foregroundColor(engine.isFavorite(track: track) ? .red : UniformDesign.textMuted)
+                                                                        .foregroundColor(engine.isFavorite(track: track) ? .red : UniformDesign.textMuted(mode: engine.appearanceMode))
                                                                         .padding(6)
                                                                 }
                                                                 .buttonStyle(PlainButtonStyle())
@@ -2130,14 +2420,14 @@ struct ContentView: View {
                                                             // Hi-Res Audio Info Badge
                                                             Text(track.audioBadgeText)
                                                                 .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                                                                .foregroundColor(engine.currentAccent.color)
+                                                                .foregroundColor(engine.activeAccentColor)
                                                                 .padding(.horizontal, 8)
                                                                 .padding(.vertical, 4)
                                                                 .background(
-                                                                    Capsule().fill(engine.currentAccent.color.opacity(0.12))
+                                                                    Capsule().fill(engine.activeAccentColor.opacity(0.12))
                                                                 )
                                                             
-                                                            ModernVisualizerView(levels: engine.visualizerLevels, accentColor: engine.currentAccent.color)
+                                                            ModernVisualizerView(levels: engine.visualizerLevels, accentColor: engine.activeAccentColor)
                                                         }
                                                         .frame(width: engine.showLyrics ? 220 : .infinity, alignment: .leading)
                                                         
@@ -2147,7 +2437,7 @@ struct ContentView: View {
                                                                 HStack {
                                                                     Text("Lyrics")
                                                                         .font(.system(size: 13, weight: .bold))
-                                                                        .foregroundColor(UniformDesign.textSecondary)
+                                                                        .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
                                                                     Spacer()
                                                                 }
                                                                 
@@ -2156,7 +2446,7 @@ struct ContentView: View {
                                                                         Spacer()
                                                                         Text("No synced lyrics found (.lrc file)")
                                                                             .font(.system(size: 12))
-                                                                            .foregroundColor(UniformDesign.textMuted)
+                                                                            .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
                                                                         Spacer()
                                                                     }
                                                                     .frame(maxWidth: .infinity, maxHeight: 180)
@@ -2168,7 +2458,7 @@ struct ContentView: View {
                                                                                     let isActive = engine.activeLyricIndex == idx
                                                                                     Text(line.text)
                                                                                         .font(.system(size: isActive ? 15 : 13, weight: isActive ? .bold : .regular))
-                                                                                        .foregroundColor(isActive ? engine.currentAccent.color : UniformDesign.textMuted)
+                                                                                        .foregroundColor(isActive ? engine.activeAccentColor : UniformDesign.textMuted(mode: engine.appearanceMode))
                                                                                         .id(idx)
                                                                                 }
                                                                             }
@@ -2192,13 +2482,13 @@ struct ContentView: View {
                                                     VStack(spacing: 14) {
                                                         Image(systemName: "arrow.down.doc.fill")
                                                             .font(.system(size: 40, weight: .light))
-                                                            .foregroundColor(UniformDesign.textMuted)
+                                                            .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
                                                         Text("Drag & Drop Music Files Here")
                                                             .font(.system(size: 18, weight: .semibold))
-                                                            .foregroundColor(UniformDesign.textPrimary)
+                                                            .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                                                         Text("Or click 'Open Folder' to play music directly from any directory")
                                                             .font(.system(size: 13))
-                                                            .foregroundColor(UniformDesign.textMuted)
+                                                            .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
                                                         
                                                         HStack(spacing: 12) {
                                                             Button(action: { engine.selectFolderToPlay() }) {
@@ -2209,7 +2499,7 @@ struct ContentView: View {
                                                                     .padding(.vertical, 8)
                                                                     .background(
                                                                         RoundedRectangle(cornerRadius: 8)
-                                                                            .fill(engine.currentAccent.color)
+                                                                            .fill(engine.activeAccentColor)
                                                                     )
                                                             }
                                                             .buttonStyle(PlainButtonStyle())
@@ -2217,12 +2507,12 @@ struct ContentView: View {
                                                             Button(action: { engine.openFiles() }) {
                                                                 Text("Open Files")
                                                                     .font(.system(size: 13, weight: .semibold))
-                                                                    .foregroundColor(UniformDesign.textPrimary)
+                                                                    .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                                                                     .padding(.horizontal, 20)
                                                                     .padding(.vertical, 8)
                                                                     .background(
                                                                         RoundedRectangle(cornerRadius: 8)
-                                                                            .fill(Color.white.opacity(0.12))
+                                                                            .fill(UniformDesign.hoverHighlight(mode: engine.appearanceMode))
                                                                     )
                                                             }
                                                             .buttonStyle(PlainButtonStyle())
@@ -2238,14 +2528,14 @@ struct ContentView: View {
                                         VStack(alignment: .leading, spacing: 10) {
                                             Text(engine.selectedNav == .favorites ? "Favorite Tracks" : "Library Tracks")
                                                 .font(.system(size: 16, weight: .bold))
-                                                .foregroundColor(UniformDesign.textPrimary)
+                                                .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                                                 .padding(.horizontal, 24)
                                             
                                             if filteredPlaylist.isEmpty {
                                                 VStack {
                                                     Text(engine.selectedNav == .favorites ? "No favorite tracks added yet." : "No music in library yet. Drag and drop audio files anywhere!")
                                                         .font(.system(size: 13))
-                                                        .foregroundColor(UniformDesign.textMuted)
+                                                        .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
                                                         .padding(24)
                                                 }
                                             } else {
@@ -2257,7 +2547,7 @@ struct ContentView: View {
                                                         HStack(spacing: 14) {
                                                             Text("\(index + 1)")
                                                                 .font(.system(size: 12, design: .monospaced))
-                                                                .foregroundColor(UniformDesign.textMuted)
+                                                                .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
                                                                 .frame(width: 24, alignment: .trailing)
                                                             
                                                             ArtworkView(artwork: track.artwork, size: 32)
@@ -2265,11 +2555,11 @@ struct ContentView: View {
                                                             VStack(alignment: .leading, spacing: 2) {
                                                                 Text(track.title)
                                                                     .font(.system(size: 13, weight: .medium))
-                                                                    .foregroundColor(isSelected ? engine.currentAccent.color : UniformDesign.textPrimary)
+                                                                    .foregroundColor(isSelected ? engine.activeAccentColor : UniformDesign.textPrimary(mode: engine.appearanceMode))
                                                                     .lineLimit(1)
                                                                 Text(track.artist)
                                                                     .font(.system(size: 11))
-                                                                    .foregroundColor(UniformDesign.textSecondary)
+                                                                    .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
                                                                     .lineLimit(1)
                                                             }
                                                             
@@ -2278,31 +2568,31 @@ struct ContentView: View {
                                                             Button(action: { engine.inspectingTrack = track }) {
                                                                 Image(systemName: "info.circle")
                                                                     .font(.system(size: 12))
-                                                                    .foregroundColor(UniformDesign.textMuted)
+                                                                    .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
                                                             }
                                                             .buttonStyle(PlainButtonStyle())
                                                             
                                                             Button(action: { engine.toggleFavorite(track: track) }) {
                                                                 Image(systemName: engine.isFavorite(track: track) ? "heart.fill" : "heart")
                                                                     .font(.system(size: 12))
-                                                                    .foregroundColor(engine.isFavorite(track: track) ? .red : UniformDesign.textMuted)
+                                                                    .foregroundColor(engine.isFavorite(track: track) ? .red : UniformDesign.textMuted(mode: engine.appearanceMode))
                                                             }
                                                             .buttonStyle(PlainButtonStyle())
                                                             
                                                             Text(track.album)
                                                                 .font(.system(size: 12))
-                                                                .foregroundColor(UniformDesign.textMuted)
+                                                                .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
                                                                 .frame(width: 140, alignment: .leading)
                                                                 .lineLimit(1)
                                                             
                                                             Text(formatTime(track.duration))
                                                                 .font(.system(size: 12, design: .monospaced))
-                                                                .foregroundColor(UniformDesign.textMuted)
+                                                                .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
                                                             
                                                             Button(action: { engine.loadAndPlay(track: track) }) {
                                                                 Image(systemName: isSelected && engine.isPlaying ? "pause.fill" : "play.fill")
                                                                     .font(.system(size: 12))
-                                                                    .foregroundColor(UniformDesign.textPrimary)
+                                                                    .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                                                                     .padding(6)
                                                             }
                                                             .buttonStyle(PlainButtonStyle())
@@ -2311,7 +2601,7 @@ struct ContentView: View {
                                                         .padding(.vertical, 6)
                                                         .background(
                                                             RoundedRectangle(cornerRadius: 8)
-                                                                .fill(isSelected ? UniformDesign.activeHighlight : (isHovered ? UniformDesign.hoverHighlight : Color.clear))
+                                                                .fill(isSelected ? UniformDesign.activeHighlight(mode: engine.appearanceMode) : (isHovered ? UniformDesign.hoverHighlight(mode: engine.appearanceMode) : Color.clear))
                                                         )
                                                         .contentShape(Rectangle())
                                                         .onTapGesture {
@@ -2339,24 +2629,24 @@ struct ContentView: View {
                             // MARK: Bottom Player Bar
                             VStack(spacing: 8) {
                                 Rectangle()
-                                    .fill(UniformDesign.borderSubtle)
+                                    .fill(UniformDesign.borderSubtle(mode: engine.appearanceMode))
                                     .frame(height: 1)
                                 
                                 // Scrubbing Progress Bar
                                 HStack(spacing: 10) {
                                     Text(formatTime(engine.currentTime))
                                         .font(.system(size: 11, design: .monospaced))
-                                        .foregroundColor(UniformDesign.textMuted)
+                                        .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
                                     
                                     Slider(value: Binding(
                                         get: { engine.currentTime },
                                         set: { engine.seek(to: $0) }
                                     ), in: 0...max(1, engine.duration))
-                                    .accentColor(engine.currentAccent.color)
+                                    .accentColor(engine.activeAccentColor)
                                     
                                     Text(formatTime(engine.duration))
                                         .font(.system(size: 11, design: .monospaced))
-                                        .foregroundColor(UniformDesign.textMuted)
+                                        .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
                                 }
                                 .padding(.horizontal, 20)
                                 
@@ -2364,23 +2654,23 @@ struct ContentView: View {
                                 HStack(spacing: 20) {
                                     // Current Song Info & Hi-Res Badge Preview (Click to open Now Playing with animation)
                                     HStack(spacing: 10) {
-                                        ArtworkView(artwork: engine.currentTrack?.artwork, size: 36, isPlaying: engine.isPlaying, accentColor: engine.currentAccent.color)
+                                        ArtworkView(artwork: engine.currentTrack?.artwork, size: 36, isPlaying: engine.isPlaying, accentColor: engine.activeAccentColor)
                                         
                                         VStack(alignment: .leading, spacing: 2) {
                                             Text(engine.currentTrack?.title ?? "No Song Playing")
                                                 .font(.system(size: 13, weight: .semibold))
-                                                .foregroundColor(UniformDesign.textPrimary)
+                                                .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                                                 .lineLimit(1)
                                             
                                             if let track = engine.currentTrack {
                                                 Text(track.audioBadgeText)
                                                     .font(.system(size: 10, design: .monospaced))
-                                                    .foregroundColor(engine.currentAccent.color)
+                                                    .foregroundColor(engine.activeAccentColor)
                                                     .lineLimit(1)
                                             } else {
                                                 Text("Select a track")
                                                     .font(.system(size: 11))
-                                                    .foregroundColor(UniformDesign.textSecondary)
+                                                    .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
                                                     .lineLimit(1)
                                             }
                                         }
@@ -2432,20 +2722,20 @@ struct ContentView: View {
                                                         .foregroundColor(.black)
                                                         .padding(.horizontal, 5)
                                                         .padding(.vertical, 1)
-                                                        .background(Capsule().fill(engine.currentAccent.color))
+                                                        .background(Capsule().fill(engine.activeAccentColor))
                                                 }
                                             }
-                                            .foregroundColor(engine.showQueueDrawer || !engine.playQueue.isEmpty ? engine.currentAccent.color : UniformDesign.textMuted)
+                                            .foregroundColor(engine.showQueueDrawer || !engine.playQueue.isEmpty ? engine.activeAccentColor : UniformDesign.textMuted(mode: engine.appearanceMode))
                                         }
                                         .buttonStyle(PlainButtonStyle())
                                         
                                         HStack(spacing: 8) {
                                             Image(systemName: engine.volume == 0 ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                                                .foregroundColor(UniformDesign.textMuted)
+                                                .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
                                                 .font(.system(size: 12))
                                             
                                             Slider(value: $engine.volume, in: 0...1)
-                                                .accentColor(engine.currentAccent.color)
+                                                .accentColor(engine.activeAccentColor)
                                                 .frame(width: 80)
                                         }
                                     }
@@ -2454,14 +2744,14 @@ struct ContentView: View {
                                 .padding(.horizontal, 20)
                                 .padding(.bottom, 10)
                             }
-                            .background(UniformDesign.bgBottomBar)
+                            .background(UniformDesign.bgBottomBar(mode: engine.appearanceMode))
                         }
                     }
                 }
                 .frame(minWidth: 960, minHeight: 640)
                 .overlay(
                     RoundedRectangle(cornerRadius: 0)
-                        .stroke(engine.isDropTargeted ? engine.currentAccent.color.opacity(0.6) : Color.clear, lineWidth: 3)
+                        .stroke(engine.isDropTargeted ? engine.activeAccentColor.opacity(0.6) : Color.clear, lineWidth: 3)
                 )
                 .onDrop(of: [.fileURL], isTargeted: $engine.isDropTargeted) { providers in
                     var urls: [URL] = []
@@ -2489,6 +2779,9 @@ struct ContentView: View {
                     PlayQueueDrawerSheet(engine: engine)
                 }
                 .onAppear {
+                    // Shared AudioEngine reference for AppDelegate Status Bar HUD Popover
+                    AppDelegate.sharedEngine = engine
+                    
                     NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
                         if let responder = NSApp.keyWindow?.firstResponder as? NSTextView, responder.isEditable {
                             return event
@@ -2538,25 +2831,43 @@ struct ContentView: View {
     }
 }
 
-// MARK: - App Delegate & Main Entry
+// MARK: - App Delegate & Main Entry (Menu Bar Popover HUD)
 
 class AppDelegate: NSObject, NSApplicationDelegate {
+    static var sharedEngine: AudioEngine?
     var statusItem: NSStatusItem?
+    var popover: NSPopover?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Setup Status Bar Menu Item
+        // Setup Status Bar Menu Item & Popover HUD
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.animates = true
+        self.popover = popover
         
         if let button = statusItem?.button {
             button.image = NSImage(systemSymbolName: "music.note", accessibilityDescription: "San")
             button.action = #selector(statusBarButtonClicked)
+            button.target = self
         }
     }
     
     @objc func statusBarButtonClicked() {
-        NSApp.activate(ignoringOtherApps: true)
-        if let window = NSApp.windows.first {
-            window.makeKeyAndOrderFront(nil)
+        guard let button = statusItem?.button else { return }
+        if let popover = popover {
+            if popover.isShown {
+                popover.performClose(nil)
+            } else if let engine = AppDelegate.sharedEngine {
+                popover.contentViewController = NSHostingController(rootView: StatusBarPopoverView(engine: engine))
+                popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            } else {
+                NSApp.activate(ignoringOtherApps: true)
+                if let window = NSApp.windows.first {
+                    window.makeKeyAndOrderFront(nil)
+                }
+            }
         }
     }
 }
