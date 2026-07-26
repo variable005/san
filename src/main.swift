@@ -42,6 +42,8 @@ struct Track: Identifiable, Equatable {
     let title: String
     let artist: String
     let album: String
+    let genre: String
+    let year: String
     let duration: TimeInterval
     let artwork: NSImage?
     let formatName: String
@@ -64,6 +66,12 @@ struct Track: Identifiable, Equatable {
     }
 }
 
+struct TrackStats: Codable {
+    var playCount: Int = 0
+    var lastPlayedDate: Date? = nil
+    var dateAdded: Date = Date()
+}
+
 struct AlbumGroup: Identifiable, Equatable {
     var id: String { name }
     let name: String
@@ -83,6 +91,9 @@ enum NavigationItem: String, CaseIterable, Identifiable {
     case folders = "Folder Mode"
     case favorites = "Favorites"
     case playlists = "Playlists"
+    case recentlyAdded = "Recently Added"
+    case mostPlayed = "Most Played"
+    case recentlyPlayed = "Recently Played"
     case equalizer = "Equalizer"
     case settings = "Settings"
     
@@ -96,6 +107,9 @@ enum NavigationItem: String, CaseIterable, Identifiable {
         case .folders: return "folder.fill"
         case .favorites: return "heart.fill"
         case .playlists: return "music.note.list"
+        case .recentlyAdded: return "clock.badge.fill"
+        case .mostPlayed: return "flame.fill"
+        case .recentlyPlayed: return "arrow.counterclockwise"
         case .equalizer: return "slider.vertical.3"
         case .settings: return "gearshape.fill"
         }
@@ -107,8 +121,31 @@ enum SortOption: String, CaseIterable, Identifiable {
     case artist = "Artist"
     case album = "Album"
     case duration = "Duration"
+    case genre = "Genre"
+    case dateAdded = "Date Added"
+    case playCount = "Play Count"
     
     var id: String { self.rawValue }
+}
+
+enum CrossfadeDuration: String, CaseIterable, Identifiable, Codable {
+    case off = "Off"
+    case one = "1 second"
+    case two = "2 seconds"
+    case three = "3 seconds"
+    case five = "5 seconds"
+    
+    var id: String { self.rawValue }
+    
+    var seconds: Double {
+        switch self {
+        case .off: return 0
+        case .one: return 1
+        case .two: return 2
+        case .three: return 3
+        case .five: return 5
+        }
+    }
 }
 
 struct UserPlaylist: Identifiable, Codable, Equatable {
@@ -145,6 +182,9 @@ struct SavedLibraryData: Codable {
     var playerAnimation: PlayerAnimationOption?
     var userPlaylists: [UserPlaylist]?
     var lastFolderURL: String?
+    var windowFrame: [CGFloat]?
+    var sidebarWidth: CGFloat?
+    var crossfadeDuration: CrossfadeDuration?
 }
 
 enum EQPreset: String, CaseIterable, Identifiable {
@@ -252,15 +292,61 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var isDropTargeted: Bool = false
     @Published var isMiniPlayer: Bool = false
     
+    // Track Stats (Play Count, Last Played, Date Added)
+    @Published var trackStats: [String: TrackStats] = [:]
+    
+    // Crossfade & Gapless Playback
+    @Published var crossfadeDuration: CrossfadeDuration = .off
+    
+    // Resizable Sidebar
+    @Published var sidebarWidth: CGFloat = 200
+    
     private var audioPlayer: AVAudioPlayer?
+    private var crossfadePlayer: AVAudioPlayer?
+    private var nextTrackBuffer: AVAudioPlayer?
     private var timer: Timer?
     private var visualizerTimer: Timer?
+    private var scrobbleTimer: Timer?
     
     var activeAccentColor: Color {
         if useDynamicArtworkTheme, let sampled = dynamicAccentColor {
             return sampled
         }
         return currentAccent.color
+    }
+    
+    // MARK: - Smart Playlist Computed Properties
+    
+    var recentlyAddedTracks: [Track] {
+        let cutoff = Date().addingTimeInterval(-30 * 24 * 3600) // Last 30 days
+        return playlist.filter { track in
+            if let stats = trackStats[track.url.path] {
+                return stats.dateAdded > cutoff
+            }
+            return true // If no stats yet, treat as recently added
+        }.sorted { a, b in
+            let dateA = trackStats[a.url.path]?.dateAdded ?? Date()
+            let dateB = trackStats[b.url.path]?.dateAdded ?? Date()
+            return dateA > dateB
+        }
+    }
+    
+    var mostPlayedTracks: [Track] {
+        return playlist.filter { track in
+            (trackStats[track.url.path]?.playCount ?? 0) > 0
+        }.sorted { a, b in
+            (trackStats[a.url.path]?.playCount ?? 0) > (trackStats[b.url.path]?.playCount ?? 0)
+        }.prefix(25).map { $0 }
+    }
+    
+    var recentlyPlayedTracks: [Track] {
+        return playlist.filter { track in
+            trackStats[track.url.path]?.lastPlayedDate != nil
+        }.sorted { a, b in
+            let dateA = trackStats[a.url.path]?.lastPlayedDate ?? Date.distantPast
+            let dateB = trackStats[b.url.path]?.lastPlayedDate ?? Date.distantPast
+            return dateA > dateB
+        }.prefix(20).map { $0 }
     }
     
     var albumsList: [AlbumGroup] {
@@ -432,6 +518,17 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
         }
         
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        
+        // Update Dock Icon Progress Indicator Badge
+        DispatchQueue.main.async {
+            if self.isPlaying && self.duration > 0 {
+                let progressPercent = Int((self.currentTime / self.duration) * 100)
+                NSApp.dockTile.badgeLabel = "\(progressPercent)%"
+            } else {
+                NSApp.dockTile.badgeLabel = nil
+            }
+            NSApp.dockTile.display()
+        }
     }
     
     // MARK: - Playback Logic
@@ -444,15 +541,56 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
             dynamicAccentColor = nil
         }
         
+        // Update last played date
+        let path = track.url.path
+        if trackStats[path] == nil {
+            trackStats[path] = TrackStats(playCount: 0, lastPlayedDate: Date(), dateAdded: Date())
+        } else {
+            trackStats[path]?.lastPlayedDate = Date()
+        }
+        saveTrackStats()
+        
+        // Crossfade: If crossfade is enabled and a track is currently playing, fade out old player
+        if crossfadeDuration.seconds > 0, let oldPlayer = audioPlayer, oldPlayer.isPlaying {
+            crossfadePlayer = oldPlayer
+            let fadeDuration = crossfadeDuration.seconds
+            let steps = 20
+            let stepInterval = fadeDuration / Double(steps)
+            let volumeStep = oldPlayer.volume / Float(steps)
+            
+            for i in 1...steps {
+                DispatchQueue.main.asyncAfter(deadline: .now() + stepInterval * Double(i)) { [weak self] in
+                    self?.crossfadePlayer?.volume = max(0, oldPlayer.volume - volumeStep * Float(i))
+                    if i == steps {
+                        self?.crossfadePlayer?.stop()
+                        self?.crossfadePlayer = nil
+                    }
+                }
+            }
+        }
+        
         do {
             audioPlayer = try AVAudioPlayer(contentsOf: track.url)
             audioPlayer?.delegate = self
-            audioPlayer?.volume = volume
+            audioPlayer?.volume = crossfadeDuration.seconds > 0 ? 0 : volume
             audioPlayer?.enableRate = true
             audioPlayer?.rate = playbackRate
             audioPlayer?.pan = pan
             audioPlayer?.prepareToPlay()
             audioPlayer?.play()
+            
+            // Fade in if crossfade is active
+            if crossfadeDuration.seconds > 0 {
+                let fadeDuration = crossfadeDuration.seconds
+                let steps = 20
+                let stepInterval = fadeDuration / Double(steps)
+                let volumeStep = volume / Float(steps)
+                for i in 1...steps {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + stepInterval * Double(i)) { [weak self] in
+                        self?.audioPlayer?.volume = min(self?.volume ?? 0.8, volumeStep * Float(i))
+                    }
+                }
+            }
             
             isPlaying = true
             duration = audioPlayer?.duration ?? track.duration
@@ -461,6 +599,18 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
             loadLyrics(for: track)
             startTimers()
             updateNowPlayingInfo()
+            
+            // Start scrobble timer: increment play count after 30 seconds
+            scrobbleTimer?.invalidate()
+            scrobbleTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: false) { [weak self] _ in
+                guard let self = self else { return }
+                if self.trackStats[path] != nil {
+                    self.trackStats[path]!.playCount += 1
+                } else {
+                    self.trackStats[path] = TrackStats(playCount: 1, lastPlayedDate: Date(), dateAdded: Date())
+                }
+                self.saveTrackStats()
+            }
         } catch {
             print("Failed to play track: \(error.localizedDescription)")
         }
@@ -538,6 +688,12 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
         } else if selectedNav == .playlists, let id = activePlaylistId, let pl = userPlaylists.first(where: { $0.id == id }) {
             let paths = Set(pl.trackPaths)
             return playlist.filter { paths.contains($0.url.path) }
+        } else if selectedNav == .recentlyAdded {
+            return recentlyAddedTracks
+        } else if selectedNav == .mostPlayed {
+            return mostPlayedTracks
+        } else if selectedNav == .recentlyPlayed {
+            return recentlyPlayedTracks
         }
         return playlist
     }
@@ -633,6 +789,39 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
             favoritePaths.insert(path)
         }
         saveLibrary()
+    }
+    
+    // MARK: - Remove Tracks from Library
+    
+    func removeTrack(track: Track) {
+        let path = track.url.path
+        playlist.removeAll(where: { $0.url.path == path })
+        favoritePaths.remove(path)
+        trackStats.removeValue(forKey: path)
+        for i in 0..<userPlaylists.count {
+            userPlaylists[i].trackPaths.removeAll(where: { $0 == path })
+        }
+        if currentTrack?.url.path == path {
+            currentTrack = nil
+            audioPlayer?.stop()
+            isPlaying = false
+        }
+        saveLibrary()
+        saveTrackStats()
+    }
+    
+    func removeTracksFromLibrary(tracks: [Track]) {
+        for track in tracks {
+            removeTrack(track: track)
+        }
+    }
+    
+    func getPlayCount(for track: Track) -> Int {
+        return trackStats[track.url.path]?.playCount ?? 0
+    }
+    
+    func getDateAdded(for track: Track) -> Date {
+        return trackStats[track.url.path]?.dateAdded ?? Date()
     }
     
     // MARK: - Equalizer & Theme Controls
@@ -784,6 +973,8 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
         var title = url.deletingPathExtension().lastPathComponent
         var artist = "Unknown Artist"
         var album = "Unknown Album"
+        var genre = ""
+        var year = ""
         var artworkImage: NSImage?
         
         let formatName = url.pathExtension.uppercased()
@@ -834,8 +1025,22 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
                         if let val = item.value as? String, !val.isEmpty { artist = val }
                     case "albumName":
                         if let val = item.value as? String, !val.isEmpty { album = val }
+                    case "type":
+                        if let val = item.value as? String, !val.isEmpty { genre = val }
+                    case "creationDate":
+                        if let val = item.value as? String, !val.isEmpty { year = String(val.prefix(4)) }
                     default:
                         break
+                    }
+                }
+                
+                // Also check for ID3/iTunes specific genre & year tags
+                if let identifier = item.identifier?.rawValue {
+                    if identifier.contains("TCON") || identifier.contains("genre") {
+                        if let val = item.value as? String, !val.isEmpty, genre.isEmpty { genre = val }
+                    }
+                    if identifier.contains("TDRC") || identifier.contains("TYER") || identifier.contains("year") {
+                        if let val = item.value as? String, !val.isEmpty, year.isEmpty { year = String(val.prefix(4)) }
                     }
                 }
             }
@@ -878,11 +1083,18 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
             }
         }
         
+        // Register date added in track stats if not already present
+        if trackStats[url.path] == nil {
+            trackStats[url.path] = TrackStats(playCount: 0, lastPlayedDate: nil, dateAdded: Date())
+        }
+        
         return Track(
             url: url,
             title: title,
             artist: artist,
             album: album,
+            genre: genre,
+            year: year,
             duration: trackDuration,
             artwork: artworkImage,
             formatName: formatName,
@@ -929,7 +1141,9 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
             useDynamicArtworkTheme: useDynamicArtworkTheme,
             playerAnimation: playerAnimation,
             userPlaylists: userPlaylists,
-            lastFolderURL: selectedFolderURL?.path
+            lastFolderURL: selectedFolderURL?.path,
+            sidebarWidth: sidebarWidth,
+            crossfadeDuration: crossfadeDuration
         )
         do {
             let json = try JSONEncoder().encode(savedData)
@@ -940,6 +1154,7 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
     
     func loadLibrary() {
+        loadTrackStats()
         let url = libraryStorageURL
         guard FileManager.default.fileExists(atPath: url.path) else { return }
         do {
@@ -974,6 +1189,12 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
                     self.folderTracks = scanDirectory(folderURL)
                 }
             }
+            if let sw = savedData.sidebarWidth {
+                self.sidebarWidth = sw
+            }
+            if let cf = savedData.crossfadeDuration {
+                self.crossfadeDuration = cf
+            }
             
             var loadedTracks: [Track] = []
             for path in savedData.filePaths {
@@ -994,6 +1215,36 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
             }
         } catch {
             print("Failed to load saved library: \(error.localizedDescription)")
+        }
+    }
+    
+    // MARK: - Track Stats Persistence (stats.json)
+    
+    private var statsStorageURL: URL {
+        let fileManager = FileManager.default
+        let appSupportDir = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let sanDir = appSupportDir.appendingPathComponent("San", isDirectory: true)
+        try? fileManager.createDirectory(at: sanDir, withIntermediateDirectories: true)
+        return sanDir.appendingPathComponent("stats.json")
+    }
+    
+    func saveTrackStats() {
+        do {
+            let json = try JSONEncoder().encode(trackStats)
+            try json.write(to: statsStorageURL)
+        } catch {
+            print("Failed to save track stats: \(error.localizedDescription)")
+        }
+    }
+    
+    func loadTrackStats() {
+        let url = statsStorageURL
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        do {
+            let data = try Data(contentsOf: url)
+            self.trackStats = try JSONDecoder().decode([String: TrackStats].self, from: data)
+        } catch {
+            print("Failed to load track stats: \(error.localizedDescription)")
         }
     }
     
@@ -2268,6 +2519,43 @@ struct SettingsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             
+            // Audio Playback & Crossfade Section
+            ModernCard(cornerRadius: 14, mode: engine.appearanceMode) {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Audio Playback & Crossfade")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
+                    
+                    Text("Set the smooth overlap transition duration between songs:")
+                        .font(.system(size: 12))
+                        .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
+                    
+                    HStack(spacing: 12) {
+                        ForEach(CrossfadeDuration.allCases) { option in
+                            Button(action: {
+                                engine.crossfadeDuration = option
+                                engine.saveLibrary()
+                            }) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: option == .off ? "speaker.fill" : "wave.3.left.and.right")
+                                    Text(option.rawValue)
+                                }
+                                .font(.system(size: 12, weight: engine.crossfadeDuration == option ? .bold : .medium))
+                                .foregroundColor(engine.crossfadeDuration == option ? .black : UniformDesign.textPrimary(mode: engine.appearanceMode))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(
+                                    Capsule().fill(engine.crossfadeDuration == option ? engine.activeAccentColor : UniformDesign.hoverHighlight(mode: engine.appearanceMode))
+                                )
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                    }
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            
             // Sleep Timer Section
             ModernCard(cornerRadius: 14, mode: engine.appearanceMode) {
                 VStack(alignment: .leading, spacing: 14) {
@@ -2445,6 +2733,12 @@ struct ContentView: View {
             return baseList.sorted { $0.album.localizedCompare($1.album) == .orderedAscending }
         case .duration:
             return baseList.sorted { $0.duration < $1.duration }
+        case .genre:
+            return baseList.sorted { $0.genre.localizedCompare($1.genre) == .orderedAscending }
+        case .dateAdded:
+            return baseList.sorted { engine.getDateAdded(for: $0) > engine.getDateAdded(for: $1) }
+        case .playCount:
+            return baseList.sorted { engine.getPlayCount(for: $0) > engine.getPlayCount(for: $1) }
         }
     }
     
@@ -2486,6 +2780,13 @@ struct ContentView: View {
                                     SidebarSectionView(title: "COLLECTIONS", engine: engine) {
                                         SidebarNavItemButton(item: .favorites, engine: engine)
                                         SidebarNavItemButton(item: .playlists, engine: engine)
+                                    }
+                                    
+                                    // Section 3: SMART PLAYLISTS
+                                    SidebarSectionView(title: "SMART PLAYLISTS", engine: engine) {
+                                        SidebarNavItemButton(item: .recentlyAdded, engine: engine)
+                                        SidebarNavItemButton(item: .mostPlayed, engine: engine)
+                                        SidebarNavItemButton(item: .recentlyPlayed, engine: engine)
                                     }
                                     
                                     // Section 3: AUDIO & SYSTEM
@@ -2544,13 +2845,37 @@ struct ContentView: View {
                             .padding(.horizontal, 14)
                             .padding(.bottom, 20)
                         }
-                        .frame(width: 200)
+                        .frame(width: engine.sidebarWidth)
                         .frame(maxHeight: .infinity)
                         .background(UniformDesign.bgSidebar(mode: engine.appearanceMode))
                         
+                        // Draggable Sidebar Resize Handle
                         Rectangle()
                             .fill(UniformDesign.borderSubtle(mode: engine.appearanceMode))
                             .frame(width: 1)
+                            .overlay(
+                                Rectangle()
+                                    .fill(Color.clear)
+                                    .frame(width: 8)
+                                    .contentShape(Rectangle())
+                                    .gesture(
+                                        DragGesture(minimumDistance: 1)
+                                            .onChanged { value in
+                                                let newWidth = engine.sidebarWidth + value.translation.width
+                                                engine.sidebarWidth = min(280, max(160, newWidth))
+                                            }
+                                            .onEnded { _ in
+                                                engine.saveLibrary()
+                                            }
+                                    )
+                                    .onHover { hovering in
+                                        if hovering {
+                                            NSCursor.resizeLeftRight.push()
+                                        } else {
+                                            NSCursor.pop()
+                                        }
+                                    }
+                            )
                         
                         // MARK: Main Content Workspace
                         VStack(spacing: 0) {
@@ -2634,7 +2959,7 @@ struct ContentView: View {
                                                                     .lineLimit(2)
                                                                     .fixedSize(horizontal: false, vertical: true)
                                                                 
-                                                                Text(track.artist)
+                                                                Text(track.artist + (track.year.isEmpty ? "" : " • \(track.year)"))
                                                                     .font(.system(size: 13, weight: .medium))
                                                                     .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
                                                                     .lineLimit(1)
@@ -2692,7 +3017,6 @@ struct ContentView: View {
                                                                 HStack {
                                                                     Text("Lyrics")
                                                                         .font(.system(size: 13, weight: .bold))
-                                                                        .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
                                                                     Spacer()
                                                                 }
                                                                 
@@ -2780,100 +3104,264 @@ struct ContentView: View {
                                         }
                                         
                                         // Library List View
-                                        VStack(alignment: .leading, spacing: 10) {
-                                            Text(engine.selectedNav == .favorites ? "Favorite Tracks" : "Library Tracks")
-                                                .font(.system(size: 16, weight: .bold))
-                                                .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
-                                                .padding(.horizontal, 24)
-                                            
-                                            if filteredPlaylist.isEmpty {
-                                                VStack {
-                                                    Text(engine.selectedNav == .favorites ? "No favorite tracks added yet." : "No music in library yet. Drag and drop audio files anywhere!")
-                                                        .font(.system(size: 13))
-                                                        .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
-                                                        .padding(24)
-                                                }
-                                            } else {
-                                                VStack(spacing: 2) {
-                                                    ForEach(Array(filteredPlaylist.enumerated()), id: \.element.id) { index, track in
-                                                        let isHovered = engine.hoveredTrackId == track.id
-                                                        let isSelected = engine.currentTrack == track
-                                                        
-                                                        HStack(spacing: 14) {
-                                                            Text("\(index + 1)")
-                                                                .font(.system(size: 12, design: .monospaced))
-                                                                .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
-                                                                .frame(width: 24, alignment: .trailing)
-                                                            
-                                                            ArtworkView(artwork: track.artwork, size: 32)
-                                                            
-                                                            VStack(alignment: .leading, spacing: 2) {
-                                                                Text(track.title)
-                                                                    .font(.system(size: 13, weight: .medium))
-                                                                    .foregroundColor(isSelected ? engine.activeAccentColor : UniformDesign.textPrimary(mode: engine.appearanceMode))
-                                                                    .lineLimit(1)
-                                                                Text(track.artist)
+                                        ScrollViewReader { scrollProxy in
+                                            VStack(alignment: .leading, spacing: 12) {
+                                                // Header Title & Action Bar
+                                                HStack {
+                                                    let headerTitle: String = {
+                                                        switch engine.selectedNav {
+                                                        case .favorites: return "Favorite Tracks"
+                                                        case .recentlyAdded: return "Recently Added Tracks"
+                                                        case .mostPlayed: return "Most Played Tracks"
+                                                        case .recentlyPlayed: return "Recently Played History"
+                                                        default: return "Library Tracks"
+                                                        }
+                                                    }()
+                                                    
+                                                    Text(headerTitle)
+                                                        .font(.system(size: 16, weight: .bold))
+                                                        .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
+                                                    
+                                                    Spacer()
+                                                    
+                                                    if engine.currentTrack != nil {
+                                                        Button(action: {
+                                                            if let current = engine.currentTrack {
+                                                                withAnimation(.spring()) {
+                                                                    scrollProxy.scrollTo(current.id, anchor: .center)
+                                                                }
+                                                            }
+                                                        }) {
+                                                            HStack(spacing: 6) {
+                                                                Image(systemName: "location.fill")
                                                                     .font(.system(size: 11))
-                                                                    .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
-                                                                    .lineLimit(1)
+                                                                Text("Scroll to Playing")
+                                                                    .font(.system(size: 11, weight: .semibold))
                                                             }
-                                                            
-                                                            Spacer()
-                                                            
-                                                            Button(action: { engine.inspectingTrack = track }) {
-                                                                Image(systemName: "info.circle")
-                                                                    .font(.system(size: 12))
-                                                                    .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
-                                                            }
-                                                            .buttonStyle(PlainButtonStyle())
-                                                            
-                                                            Button(action: { engine.toggleFavorite(track: track) }) {
-                                                                Image(systemName: engine.isFavorite(track: track) ? "heart.fill" : "heart")
-                                                                    .font(.system(size: 12))
-                                                                    .foregroundColor(engine.isFavorite(track: track) ? .red : UniformDesign.textMuted(mode: engine.appearanceMode))
-                                                            }
-                                                            .buttonStyle(PlainButtonStyle())
-                                                            
-                                                            Text(track.album)
-                                                                .font(.system(size: 12))
-                                                                .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
-                                                                .frame(width: 140, alignment: .leading)
-                                                                .lineLimit(1)
-                                                            
-                                                            Text(formatTime(track.duration))
-                                                                .font(.system(size: 12, design: .monospaced))
-                                                                .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
-                                                            
-                                                            Button(action: { engine.loadAndPlay(track: track) }) {
-                                                                Image(systemName: isSelected && engine.isPlaying ? "pause.fill" : "play.fill")
-                                                                    .font(.system(size: 12))
-                                                                    .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
-                                                                    .padding(6)
-                                                            }
-                                                            .buttonStyle(PlainButtonStyle())
+                                                            .foregroundColor(engine.activeAccentColor)
+                                                            .padding(.horizontal, 10)
+                                                            .padding(.vertical, 4)
+                                                            .background(Capsule().fill(engine.activeAccentColor.opacity(0.12)))
                                                         }
-                                                        .padding(.horizontal, 16)
-                                                        .padding(.vertical, 6)
-                                                        .background(
-                                                            RoundedRectangle(cornerRadius: 8)
-                                                                .fill(isSelected ? UniformDesign.activeHighlight(mode: engine.appearanceMode) : (isHovered ? UniformDesign.hoverHighlight(mode: engine.appearanceMode) : Color.clear))
-                                                        )
-                                                        .contentShape(Rectangle())
-                                                        .onTapGesture {
-                                                            engine.loadAndPlay(track: track)
-                                                        }
-                                                        .onHover { hovering in
-                                                            engine.hoveredTrackId = hovering ? track.id : nil
-                                                        }
-                                                        .contextMenu {
-                                                            Button("Play Next") { engine.playNext(track: track) }
-                                                            Button("Add to Queue") { engine.addToQueue(track: track) }
-                                                            Button(engine.isFavorite(track: track) ? "Remove from Favorites" : "Add to Favorites") { engine.toggleFavorite(track: track) }
-                                                            Button("Inspect File") { engine.inspectingTrack = track }
-                                                        }
+                                                        .buttonStyle(PlainButtonStyle())
                                                     }
                                                 }
                                                 .padding(.horizontal, 24)
+                                                
+                                                if filteredPlaylist.isEmpty {
+                                                    // Rich Empty State Card
+                                                    VStack(spacing: 16) {
+                                                        Image(systemName: engine.selectedNav == .favorites ? "heart.slash" : "music.note.house")
+                                                            .font(.system(size: 44, weight: .light))
+                                                            .foregroundColor(engine.activeAccentColor.opacity(0.8))
+                                                            .padding(.top, 24)
+                                                        
+                                                        Text(engine.selectedNav == .favorites ? "No Favorites Yet" : "Your Music Library is Empty")
+                                                            .font(.system(size: 16, weight: .bold))
+                                                            .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
+                                                        
+                                                        Text(engine.selectedNav == .favorites ? "Click the heart icon on any song to add it to your favorites." : "Drag and drop local audio files (MP3, WAV, FLAC, M4A) anywhere or click Import Music to populate your collection.")
+                                                            .font(.system(size: 13))
+                                                            .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
+                                                            .multilineTextAlignment(.center)
+                                                            .frame(maxWidth: 420)
+                                                        
+                                                        if engine.selectedNav != .favorites {
+                                                            Button(action: { engine.openFiles() }) {
+                                                                HStack(spacing: 8) {
+                                                                    Image(systemName: "square.and.arrow.down.fill")
+                                                                        .font(.system(size: 13, weight: .semibold))
+                                                                    Text("Import Audio Files")
+                                                                        .font(.system(size: 13, weight: .bold))
+                                                                }
+                                                                .foregroundColor(.black)
+                                                                .padding(.horizontal, 20)
+                                                                .padding(.vertical, 10)
+                                                                .background(Capsule().fill(engine.activeAccentColor))
+                                                            }
+                                                            .buttonStyle(PlainButtonStyle())
+                                                            .padding(.bottom, 24)
+                                                        }
+                                                    }
+                                                    .frame(maxWidth: .infinity)
+                                                    .padding(32)
+                                                    .background(
+                                                        RoundedRectangle(cornerRadius: 16)
+                                                            .fill(UniformDesign.bgCard(mode: engine.appearanceMode))
+                                                            .overlay(
+                                                                RoundedRectangle(cornerRadius: 16)
+                                                                    .stroke(UniformDesign.borderSubtle(mode: engine.appearanceMode), lineWidth: 1)
+                                                            )
+                                                    )
+                                                    .padding(.horizontal, 24)
+                                                } else {
+                                                    // Column Headers Bar
+                                                    HStack(spacing: 14) {
+                                                        Text("#")
+                                                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                                            .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
+                                                            .frame(width: 24, alignment: .trailing)
+                                                        
+                                                        Spacer().frame(width: 32) // Artwork width offset
+                                                        
+                                                        Button(action: { engine.currentSort = .title }) {
+                                                            HStack(spacing: 4) {
+                                                                Text("TITLE & ARTIST")
+                                                                if engine.currentSort == .title { Image(systemName: "chevron.down").font(.system(size: 9)) }
+                                                            }
+                                                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                                            .foregroundColor(engine.currentSort == .title ? engine.activeAccentColor : UniformDesign.textMuted(mode: engine.appearanceMode))
+                                                        }
+                                                        .buttonStyle(PlainButtonStyle())
+                                                        
+                                                        Spacer()
+                                                        
+                                                        Button(action: { engine.currentSort = .album }) {
+                                                            HStack(spacing: 4) {
+                                                                Text("ALBUM")
+                                                                if engine.currentSort == .album { Image(systemName: "chevron.down").font(.system(size: 9)) }
+                                                            }
+                                                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                                            .foregroundColor(engine.currentSort == .album ? engine.activeAccentColor : UniformDesign.textMuted(mode: engine.appearanceMode))
+                                                        }
+                                                        .buttonStyle(PlainButtonStyle())
+                                                        .frame(width: 130, alignment: .leading)
+                                                        
+                                                        Button(action: { engine.currentSort = .genre }) {
+                                                            HStack(spacing: 4) {
+                                                                Text("GENRE")
+                                                                if engine.currentSort == .genre { Image(systemName: "chevron.down").font(.system(size: 9)) }
+                                                            }
+                                                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                                            .foregroundColor(engine.currentSort == .genre ? engine.activeAccentColor : UniformDesign.textMuted(mode: engine.appearanceMode))
+                                                        }
+                                                        .buttonStyle(PlainButtonStyle())
+                                                        .frame(width: 90, alignment: .leading)
+                                                        
+                                                        Button(action: { engine.currentSort = .playCount }) {
+                                                            HStack(spacing: 4) {
+                                                                Text("PLAYS")
+                                                                if engine.currentSort == .playCount { Image(systemName: "chevron.down").font(.system(size: 9)) }
+                                                            }
+                                                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                                            .foregroundColor(engine.currentSort == .playCount ? engine.activeAccentColor : UniformDesign.textMuted(mode: engine.appearanceMode))
+                                                        }
+                                                        .buttonStyle(PlainButtonStyle())
+                                                        .frame(width: 50, alignment: .trailing)
+                                                        
+                                                        Button(action: { engine.currentSort = .duration }) {
+                                                            HStack(spacing: 4) {
+                                                                Text("TIME")
+                                                                if engine.currentSort == .duration { Image(systemName: "chevron.down").font(.system(size: 9)) }
+                                                            }
+                                                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                                            .foregroundColor(engine.currentSort == .duration ? engine.activeAccentColor : UniformDesign.textMuted(mode: engine.appearanceMode))
+                                                        }
+                                                        .buttonStyle(PlainButtonStyle())
+                                                        .frame(width: 45, alignment: .trailing)
+                                                        
+                                                        Spacer().frame(width: 28) // Action button spacing offset
+                                                    }
+                                                    .padding(.horizontal, 40)
+                                                    .padding(.vertical, 4)
+                                                    
+                                                    VStack(spacing: 2) {
+                                                        ForEach(Array(filteredPlaylist.enumerated()), id: \.element.id) { index, track in
+                                                            let isHovered = engine.hoveredTrackId == track.id
+                                                            let isSelected = engine.currentTrack == track
+                                                            let plays = engine.getPlayCount(for: track)
+                                                            
+                                                            HStack(spacing: 14) {
+                                                                Text("\(index + 1)")
+                                                                    .font(.system(size: 12, design: .monospaced))
+                                                                    .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
+                                                                    .frame(width: 24, alignment: .trailing)
+                                                                
+                                                                ArtworkView(artwork: track.artwork, size: 32)
+                                                                
+                                                                VStack(alignment: .leading, spacing: 2) {
+                                                                    Text(track.title)
+                                                                        .font(.system(size: 13, weight: .medium))
+                                                                        .foregroundColor(isSelected ? engine.activeAccentColor : UniformDesign.textPrimary(mode: engine.appearanceMode))
+                                                                        .lineLimit(1)
+                                                                    Text(track.artist)
+                                                                        .font(.system(size: 11))
+                                                                        .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
+                                                                        .lineLimit(1)
+                                                                }
+                                                                
+                                                                Spacer()
+                                                                
+                                                                Button(action: { engine.inspectingTrack = track }) {
+                                                                    Image(systemName: "info.circle")
+                                                                        .font(.system(size: 12))
+                                                                        .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
+                                                                }
+                                                                .buttonStyle(PlainButtonStyle())
+                                                                
+                                                                Button(action: { engine.toggleFavorite(track: track) }) {
+                                                                    Image(systemName: engine.isFavorite(track: track) ? "heart.fill" : "heart")
+                                                                        .font(.system(size: 12))
+                                                                        .foregroundColor(engine.isFavorite(track: track) ? .red : UniformDesign.textMuted(mode: engine.appearanceMode))
+                                                                }
+                                                                .buttonStyle(PlainButtonStyle())
+                                                                
+                                                                Text(track.album)
+                                                                    .font(.system(size: 12))
+                                                                    .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
+                                                                    .frame(width: 130, alignment: .leading)
+                                                                    .lineLimit(1)
+                                                                
+                                                                Text(track.genre.isEmpty ? "—" : track.genre)
+                                                                    .font(.system(size: 11))
+                                                                    .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
+                                                                    .frame(width: 90, alignment: .leading)
+                                                                    .lineLimit(1)
+                                                                
+                                                                Text(plays > 0 ? "\(plays)x" : "—")
+                                                                    .font(.system(size: 11, design: .monospaced))
+                                                                    .foregroundColor(plays > 0 ? engine.activeAccentColor : UniformDesign.textMuted(mode: engine.appearanceMode))
+                                                                    .frame(width: 50, alignment: .trailing)
+                                                                
+                                                                Text(formatTime(track.duration))
+                                                                    .font(.system(size: 12, design: .monospaced))
+                                                                    .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
+                                                                    .frame(width: 45, alignment: .trailing)
+                                                                
+                                                                Button(action: { engine.loadAndPlay(track: track) }) {
+                                                                    Image(systemName: isSelected && engine.isPlaying ? "pause.fill" : "play.fill")
+                                                                        .font(.system(size: 12))
+                                                                        .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
+                                                                        .padding(6)
+                                                                }
+                                                                .buttonStyle(PlainButtonStyle())
+                                                            }
+                                                            .id(track.id)
+                                                            .padding(.horizontal, 16)
+                                                            .padding(.vertical, 6)
+                                                            .background(
+                                                                RoundedRectangle(cornerRadius: 8)
+                                                                    .fill(isSelected ? UniformDesign.activeHighlight(mode: engine.appearanceMode) : (isHovered ? UniformDesign.hoverHighlight(mode: engine.appearanceMode) : Color.clear))
+                                                            )
+                                                            .contentShape(Rectangle())
+                                                            .onTapGesture {
+                                                                engine.loadAndPlay(track: track)
+                                                            }
+                                                            .onHover { hovering in
+                                                                engine.hoveredTrackId = hovering ? track.id : nil
+                                                            }
+                                                            .contextMenu {
+                                                                Button("Play Next") { engine.playNext(track: track) }
+                                                                Button("Add to Queue") { engine.addToQueue(track: track) }
+                                                                Button(engine.isFavorite(track: track) ? "Remove from Favorites" : "Add to Favorites") { engine.toggleFavorite(track: track) }
+                                                                Button("Inspect File") { engine.inspectingTrack = track }
+                                                                Divider()
+                                                                Button("Remove from Library") { engine.removeTrack(track: track) }
+                                                            }
+                                                        }
+                                                    }
+                                                    .padding(.horizontal, 24)
+                                                }
                                             }
                                         }
                                     }
@@ -3037,6 +3525,12 @@ struct ContentView: View {
                 .onAppear {
                     // Shared AudioEngine reference for AppDelegate Status Bar HUD Popover
                     AppDelegate.sharedEngine = engine
+                    
+                    DispatchQueue.main.async {
+                        if let window = NSApp.windows.first {
+                            window.setFrameAutosaveName("SanMainWindow")
+                        }
+                    }
                     
                     NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
                         if let responder = NSApp.keyWindow?.firstResponder as? NSTextView, responder.isEditable {

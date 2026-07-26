@@ -3,113 +3,63 @@
 > San is a native, ultra-lightweight, 100% offline macOS local music player built with Swift and SwiftUI.
 
 > [!WARNING]
-> **Development Status**: San is currently under active development and may be unstable. Features, behavior, and build specifications are subject to rapid change.
+> **Development Status**: San is currently under active development and may be unstable. Features, behavior, and build artifacts are subject to change.
 
 ---
 
 ## Overview
 
-San is designed for Mac users who prioritize audio privacy, instant startup performance, and refined desktop aesthetics. Built natively for macOS using Apple's Swift language and AVFoundation audio framework, San operates strictly offline with zero network requests, tracking, or background telemetry.
+San (Japanese for Three / Harmony) provides a clean, modern interface for listening to local audio files without online accounts, telemetry, or external dependencies.
 
 ---
 
 ## Features
 
-### Performance and Architecture
-- **Ultra Lightweight (~360 KB)**: Built natively with SwiftUI, AppKit, AVFoundation, and MediaPlayer. Launches instantly with minimal system resource utilization.
-- **100% Offline and Private**: Zero network dependencies, zero analytics, zero telemetry, and zero account registration. All metadata parsing and audio processing occur locally on your Mac.
-- **Apple Silicon Native**: Compiled directly for arm64 architecture, optimized for Apple M-series processors.
+### Audio Engine & Playback
+- **Crossfade Transitions**: Configurable overlap transition durations (Off, 1s, 2s, 3s, 5s) between tracks.
+- **Pre-Buffered Gapless Playback**: Pre-loads next track buffers for zero-gap playback transitions.
+- **5-Band Parametric Equalizer**: Custom audio processing with presets (Flat, Bass Boost, Treble Boost, Vocal, Electronic).
+- **Play Count & History Tracking**: Automatically increments track play counts and tracks last-played dates.
+- **Variable Playback Speed**: Control speed from 0.5x to 2.0x.
+- **Stereo Balance Control**: Adjust left/right audio channel balance.
+- **Synced LRC Lyrics**: Live lyric highlighting for `.lrc` sidecar files or embedded USLT ID3 metadata tags.
 
-### Symmetrical Interface & Customization
-- **Categorized Sidebar Navigation**: Organized into Library, Collections, and Audio & System sections with a fixed 20pt icon grid for precise vertical text alignment.
-- **Dynamic Album Artwork Color Extraction**: Automatically samples dominant vibrant accent colors from playing album artwork to dynamically theme visualizer bars, sliders, and glowing UI elements in real time.
-- **Custom Player Animation Styles**: Selectable motion options in Settings, including Fluid Spring, Vinyl Record Spin, Gentle Ease, and Snappy Fast.
-- **Appearance Modes**:
-  - Dark Mode: Standard matte dark interface.
-  - Pitch Black Mode: Pure black OLED theme for maximum contrast and power efficiency.
-  - Light Mode: High-contrast, clean minimalist light theme.
+### Library & Smart Playlists
+- **Smart Playlists**: Auto-generated dynamic views for Recently Added, Most Played (Top 25), and Recently Played tracks.
+- **Sortable Column Headers**: Clickable column headers to sort library by Title, Artist, Album, Genre, Play Count, or Duration.
+- **Genre & Release Year**: Metadata parsing and display across track rows and the Now Playing card.
+- **Remove Tracks**: Context menu option to remove tracks from library and playlists.
+- **Empty State Views**: Clear guidance and drag-and-drop landing states when collections are empty.
+- **Scroll to Playing**: Instant jump button to highlight the active track in large libraries.
 
-### Audio Processing and Audiophile Controls
-- **Graphic Equalizer (EQ)**: 5-band vertical fader control (60Hz, 230Hz, 910Hz, 3.6kHz, 14kHz) with hardware-style center 0dB midpoint indicators and exact gain readout meters (-12.0dB to +12.0dB).
-- **Equalizer Presets**: Flat, Bass Boost, Treble Boost, Vocal, Electronic, and a 1-click Reset EQ action.
-- **Hi-Res Audio Info Badge**: Displays real-time audio sample rate, bit depth, format, and bitrate (for example, FLAC • 96.0kHz • 1411 kbps).
-- **Variable Playback Speed**: 0.5x, 0.75x, 1.0x, 1.25x, 1.5x, and 2.0x playback rate controls.
-- **Stereo Balance**: Fine-tuned Left/Right channel panning control.
-- **Synced LRC Lyrics**: Parses timestamped .lrc files and automatically highlights active singing lines during playback.
-
-### Playback Queue and Library Management
-- **Up Next Play Queue**: Right-click or tap any track to choose Play Next or Add to Queue. Dedicated drawer panel allows reordering and clearing queued tracks.
-- **Visual Album Artwork Grid**: Browse library tracks grouped into responsive high-resolution album cover cards with dedicated album detail views.
-- **Folder Mode**: Browse and play audio files directly from any folder directory or external drive without altering file structures.
-- **Custom Playlists & Favorites**: Create, rename, and manage custom playlists and starred favorite tracks.
-- **Track Inspector**: View comprehensive metadata, including file size, channel count, sample rate, bit depth, format, and exact file path.
-
-### macOS Integration and Keyboard Control
-- **In-App Keyboard Shortcuts**:
-  - Spacebar: Toggle Play / Pause
-  - Left Arrow: Seek backward 5 seconds
-  - Right Arrow: Seek forward 5 seconds
-  - Cmd + L: Toggle Synced Lyrics panel
-  - Cmd + M: Toggle Compact Mini-Player
-- **macOS Menu Bar Popover HUD**: Click the status bar icon to access live artwork, spectrum visualizer bars, and transport controls from any desktop workspace.
-- **Control Center and Media Keys**: Native integration with hardware media keys (Play, Pause, Next, Prev) and System Now Playing information.
+### Interface & Customization
+- **Resizable Sidebar**: Drag-to-resize sidebar width (160pt to 280pt) with persisted dimensions.
+- **Dynamic Album Artwork Color Extraction**: Samples dominant vibrant accent colors from playing album artwork in real time.
+- **Selectable Motion Options**: Player animation styles including Fluid Spring, Vinyl Record Spin, Gentle Ease, and Snappy Fast.
+- **Appearance Modes**: Dark Mode, Pitch Black Mode (OLED), and Light Mode.
+- **Window State Persistence**: Automatically restores exact window size and position on relaunch.
+- **macOS Integration**: Menu bar popover HUD, Media key support, Now Playing Control Center integration, and Dock icon progress badge.
 
 ---
 
-## Supported Formats
+## Tech Stack
 
-- FLAC (Free Lossless Audio Codec)
-- WAV (Waveform Audio File Format)
-- MP3 (MPEG-1 Audio Layer III)
-- M4A / AAC (Advanced Audio Coding)
+- **Language**: Swift 5.9
+- **Framework**: SwiftUI + AppKit
+- **Audio Core**: AVFoundation (AVAudioPlayer, AVURLAsset, CMAudioFormatDescription)
+- **Control Center Integration**: MediaPlayer (MPRemoteCommandCenter, MPNowPlayingInfoCenter)
 
 ---
 
 ## Building from Source
 
-### Prerequisites
-- macOS 13.0 or later
-- Swift 6.0 or later (Xcode Command Line Tools)
-
-### Build Command
-
-Clone the repository and run the build script:
-
 ```bash
-git clone https://github.com/variable005/san.git
-cd san
 ./build.sh
 ```
 
-The build script compiles `src/main.swift` using `swiftc` and generates two distribution packages in `dist/`:
-- `dist/San.app` (Native macOS Application)
-- `dist/San.dmg` (Disk Image Installer)
-
----
-
-## Installation
-
-1. Mount `San.dmg`.
-2. Drag **San** into your `/Applications` directory.
-3. Launch San from Launchpad or Terminal:
-   ```bash
-   open /Applications/San.app
-   ```
-
----
-
-## Repository Structure
-
-```
-san/
-├── src/
-│   └── main.swift       # Application source code (Swift & SwiftUI)
-├── build/
-│   └── Info.plist       # macOS App Bundle property list
-├── build.sh             # Build and packaging script
-├── .gitignore
-└── README.md
-```
+The build script generates:
+- Application binary: `dist/San.app`
+- Installer package: `dist/San.dmg`
 
 ---
 
