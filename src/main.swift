@@ -906,23 +906,26 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
     
     // MARK: - Synced Lyrics Engine (.lrc & Embedded)
     
+    func toggleLyricsDisplay() {
+        showLyrics.toggle()
+        if showLyrics, let track = currentTrack {
+            loadLyrics(for: track)
+        }
+    }
+    
     private func loadLyrics(for track: Track) {
         currentLyrics = []
         activeLyricIndex = nil
         
-        let lrcURL = track.url.deletingPathExtension().appendingPathExtension("lrc")
-        if FileManager.default.fileExists(atPath: lrcURL.path),
-           let content = try? String(contentsOf: lrcURL, encoding: .utf8) {
-            currentLyrics = parseLRC(content)
-            return
-        }
-        
-        // Fallback to embedded metadata lyrics if available
-        let asset = AVURLAsset(url: track.url)
-        for format in asset.availableMetadataFormats {
-            for item in asset.metadata(forFormat: format) {
-                if let val = item.value as? String, item.commonKey?.rawValue == "lyrics" || item.identifier?.rawValue.contains("USLT") == true {
-                    let lines = val.components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        // 1. Comprehensive Local Folder Scan (.lrc & .txt sidecar files)
+        if let folderLyricContent = scanLocalFolderForLyrics(track: track) {
+            let parsed = parseLRC(folderLyricContent)
+            if !parsed.isEmpty {
+                currentLyrics = parsed
+                return
+            } else {
+                let lines = folderLyricContent.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+                if !lines.isEmpty {
                     currentLyrics = lines.enumerated().map { index, line in
                         LyricLine(time: TimeInterval(index * 4), text: line)
                     }
@@ -930,6 +933,129 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 }
             }
         }
+        
+        // 2. Embedded metadata lyrics check (FLAC Vorbis comments LYRICS/UNSYNCEDLYRICS/SYNCEDLYRICS or MP3 ID3 USLT)
+        let asset = AVURLAsset(url: track.url)
+        var rawEmbeddedLyrics: String? = nil
+        
+        // Check asset.metadata directly
+        for item in asset.metadata + asset.commonMetadata {
+            let keyStr = ((item.commonKey?.rawValue ?? "") + (item.identifier?.rawValue ?? "") + (item.key?.description ?? "")).lowercased()
+            if keyStr.contains("lyrics") || keyStr.contains("uslt") || keyStr.contains("unsyncedlyrics") || keyStr.contains("syncedlyrics") {
+                if let val = item.value as? String, !val.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    rawEmbeddedLyrics = val
+                    break
+                }
+            }
+        }
+        
+        // Check availableMetadataFormats if not found yet
+        if rawEmbeddedLyrics == nil {
+            for format in asset.availableMetadataFormats {
+                for item in asset.metadata(forFormat: format) {
+                    let keyStr = ((item.commonKey?.rawValue ?? "") + (item.identifier?.rawValue ?? "") + (item.key?.description ?? "")).lowercased()
+                    if keyStr.contains("lyrics") || keyStr.contains("uslt") || keyStr.contains("unsyncedlyrics") || keyStr.contains("syncedlyrics") {
+                        if let val = item.value as? String, !val.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            rawEmbeddedLyrics = val
+                            break
+                        }
+                    }
+                }
+                if rawEmbeddedLyrics != nil { break }
+            }
+        }
+        
+        // 3. Fallback: Scan raw file stream for FLAC Vorbis comments (LYRICS=, UNSYNCEDLYRICS=, etc.)
+        if rawEmbeddedLyrics == nil {
+            rawEmbeddedLyrics = extractLyricsFromRawFile(track.url)
+        }
+        
+        if let text = rawEmbeddedLyrics {
+            let parsed = parseLRC(text)
+            if !parsed.isEmpty {
+                currentLyrics = parsed
+            } else {
+                let lines = text.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+                currentLyrics = lines.enumerated().map { index, line in
+                    LyricLine(time: TimeInterval(index * 4), text: line)
+                }
+            }
+        }
+    }
+    
+    private func scanLocalFolderForLyrics(track: Track) -> String? {
+        let folderURL = track.url.deletingLastPathComponent()
+        let baseName = track.url.deletingPathExtension().lastPathComponent
+        let cleanTitle = track.title.lowercased()
+        
+        let candidateNames = [
+            "\(baseName).lrc",
+            "\(baseName).txt",
+            "\(track.artist) - \(track.title).lrc",
+            "\(track.artist) - \(track.title).txt",
+            "\(track.title).lrc",
+            "\(track.title).txt"
+        ]
+        
+        for name in candidateNames {
+            let candidateURL = folderURL.appendingPathComponent(name)
+            if FileManager.default.fileExists(atPath: candidateURL.path),
+               let content = try? String(contentsOf: candidateURL, encoding: .utf8),
+               !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return content
+            }
+        }
+        
+        // Scan folder for any .lrc or .txt file matching track title
+        if let enumerator = FileManager.default.enumerator(at: folderURL, includingPropertiesForKeys: nil, options: [.skipsSubdirectoryDescendants]) {
+            for case let fileURL as URL in enumerator {
+                let ext = fileURL.pathExtension.lowercased()
+                if ext == "lrc" || ext == "txt" {
+                    let name = fileURL.deletingPathExtension().lastPathComponent.lowercased()
+                    if !cleanTitle.isEmpty && (name.contains(cleanTitle) || cleanTitle.contains(name)) {
+                        if let content = try? String(contentsOf: fileURL, encoding: .utf8),
+                           !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            return content
+                        }
+                    }
+                }
+            }
+        }
+        
+        return nil
+    }
+    
+    private func extractLyricsFromRawFile(_ url: URL) -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        
+        // Read first 1 MB of file (where FLAC metadata Vorbis comments and MP3 ID3 headers reside)
+        guard let data = try? handle.read(upToCount: 1024 * 1024) else { return nil }
+        
+        let targetKeys = ["LYRICS=", "UNSYNCEDLYRICS=", "SYNCEDLYRICS=", "lyrics=", "USLT"]
+        
+        for key in targetKeys {
+            guard let keyData = key.data(using: .utf8) else { continue }
+            if let range = data.range(of: keyData) {
+                let startOffset = range.upperBound
+                let remaining = data.subdata(in: startOffset..<min(data.count, startOffset + 32768))
+                
+                var lyricBytes: [UInt8] = []
+                for byte in remaining {
+                    // Vorbis comment strings end at null byte or non-text control byte (except \n \r \t)
+                    if byte == 0 || (byte < 32 && byte != 10 && byte != 13 && byte != 9) {
+                        if lyricBytes.count > 10 { break }
+                    } else {
+                        lyricBytes.append(byte)
+                    }
+                }
+                
+                if let str = String(bytes: lyricBytes, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines), !str.isEmpty {
+                    return str
+                }
+            }
+        }
+        return nil
     }
     
     private func parseLRC(_ text: String) -> [LyricLine] {
@@ -3751,7 +3877,7 @@ struct ContentView: View {
                                                                 .buttonStyle(PlainButtonStyle())
                                                                 
                                                                 // Lyrics Toggle Button
-                                                                Button(action: { engine.showLyrics.toggle() }) {
+                                                                Button(action: { engine.toggleLyricsDisplay() }) {
                                                                     Image(systemName: engine.showLyrics ? "text.quote" : "text.alignleft")
                                                                         .font(.system(size: 14, weight: .medium))
                                                                         .foregroundColor(engine.showLyrics ? engine.activeAccentColor : UniformDesign.textMuted(mode: engine.appearanceMode))
@@ -4306,7 +4432,7 @@ struct ContentView: View {
                         if flags.contains(.command) {
                             switch keyCode {
                             case 37: // Cmd + L -> Toggle Synced Lyrics
-                                engine.showLyrics.toggle()
+                                engine.toggleLyricsDisplay()
                                 return nil
                             case 46: // Cmd + M -> Toggle Mini Player
                                 engine.toggleMiniPlayer()
@@ -4352,6 +4478,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var popover: NSPopover?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if let iconPath = Bundle.main.path(forResource: "AppIcon", ofType: "icns"),
+           let iconImg = NSImage(contentsOfFile: iconPath) {
+            NSApp.applicationIconImage = iconImg
+        }
+        
         // Setup Status Bar Menu Item & Popover HUD
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         
