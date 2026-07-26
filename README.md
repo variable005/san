@@ -14,6 +14,14 @@
 - **100% Offline and Private**: Zero network dependencies, zero tracking, zero telemetry, zero login. All metadata parsing and audio processing take place strictly on local hardware.
 - **Apple Silicon Native**: Compiled directly to `arm64` machine code for M-series Mac processors.
 
+### Symmetrical Sidebar Navigation & Interface
+- **🎨 Redesigned Symmetrical Sidebar**:
+  - **Fixed 20pt Icon Grid**: Ensures every menu text label aligns to the exact same vertical X coordinate down the column.
+  - **Grouped Category Subheadings**: Organized into `LIBRARY`, `COLLECTIONS`, and `AUDIO & SYSTEM` sections with monospaced headers.
+  - **Japanese Kanji Brand Badge**: `SAN 三` title with active accent color badge.
+  - **Verified SF Symbols**: Clean, modern icons for Library (`music.note`), Albums (`square.grid.2x2.fill`), Now Playing (`play.circle.fill`), Folders (`folder.fill`), Favorites (`heart.fill`), Playlists (`music.note.list`), Equalizer (`slider.vertical.3`), and Settings (`gearshape.fill`).
+  - **Active Pill Indicator**: Vertical accent pill indicator on selected navigation item.
+
 ### Dynamic Themes, Appearance & Player Animations
 - **🎨 Dynamic Album Artwork Theme Extraction**: Samples vibrant dominant accent colors directly from playing album cover art (`NSBitmapImageRep` pixel analysis) and dynamically morphs visualizer bars, sliders, and glowing shadows in real time.
 - **✨ Player Animation Options**: Choose your preferred motion style and artwork presentation in Settings:

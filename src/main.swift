@@ -90,14 +90,14 @@ enum NavigationItem: String, CaseIterable, Identifiable {
     
     var iconName: String {
         switch self {
-        case .library: return "music.note.list"
+        case .library: return "music.note"
         case .albums: return "square.grid.2x2.fill"
-        case .nowPlaying: return "play.circle"
+        case .nowPlaying: return "play.circle.fill"
         case .folders: return "folder.fill"
         case .favorites: return "heart.fill"
-        case .playlists: return "music.quaver.playlist"
+        case .playlists: return "music.note.list"
         case .equalizer: return "slider.vertical.3"
-        case .settings: return "gearshape"
+        case .settings: return "gearshape.fill"
         }
     }
 }
@@ -2354,6 +2354,69 @@ struct SettingsView: View {
     }
 }
 
+// MARK: - Sidebar Helper Views
+
+struct SidebarSectionView<Content: View>: View {
+    let title: String
+    @ObservedObject var engine: AudioEngine
+    @ViewBuilder var content: Content
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
+                .padding(.horizontal, 10)
+                .padding(.bottom, 2)
+            
+            content
+        }
+    }
+}
+
+struct SidebarNavItemButton: View {
+    let item: NavigationItem
+    @ObservedObject var engine: AudioEngine
+    
+    var isSelected: Bool {
+        engine.selectedNav == item
+    }
+    
+    var body: some View {
+        Button(action: {
+            withAnimation(engine.playerAnimation.animation) {
+                engine.selectedNav = item
+            }
+        }) {
+            HStack(spacing: 12) {
+                Image(systemName: item.iconName)
+                    .font(.system(size: 14, weight: isSelected ? .bold : .medium))
+                    .foregroundColor(isSelected ? engine.activeAccentColor : UniformDesign.textMuted(mode: engine.appearanceMode))
+                    .frame(width: 20, alignment: .center)
+                
+                Text(item.rawValue)
+                    .font(.system(size: 13, weight: isSelected ? .bold : .medium))
+                    .foregroundColor(isSelected ? UniformDesign.textPrimary(mode: engine.appearanceMode) : UniformDesign.textSecondary(mode: engine.appearanceMode))
+                
+                Spacer()
+                
+                if isSelected {
+                    Capsule()
+                        .fill(engine.activeAccentColor)
+                        .frame(width: 3, height: 14)
+                }
+            }
+            .padding(.vertical, 7)
+            .padding(.horizontal, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(isSelected ? UniformDesign.activeHighlight(mode: engine.appearanceMode) : Color.clear)
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+}
+
 // MARK: - Main Application View
 
 struct ContentView: View {
@@ -2398,93 +2461,96 @@ struct ContentView: View {
                     // Main Window Content Layout
                     HStack(spacing: 0) {
                         // MARK: Sidebar Navigation
-                        VStack(alignment: .leading, spacing: 24) {
+                        VStack(alignment: .leading, spacing: 20) {
                             // App Brand Header
-                            Text("SAN")
-                                .font(.system(size: 18, weight: .bold))
-                                .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
-                            .padding(.horizontal, 20)
-                            .padding(.top, 24)
-                            
-                            // Navigation List
-                            VStack(alignment: .leading, spacing: 4) {
-                                ForEach(NavigationItem.allCases) { item in
-                                    Button(action: {
-                                        withAnimation(.easeInOut(duration: 0.2)) {
-                                            engine.selectedNav = item
-                                        }
-                                    }) {
-                                        HStack(spacing: 12) {
-                                            Image(systemName: item.iconName)
-                                                .font(.system(size: 15, weight: .medium))
-                                                .foregroundColor(engine.selectedNav == item ? engine.activeAccentColor : UniformDesign.textMuted(mode: engine.appearanceMode))
-                                            Text(item.rawValue)
-                                                .font(.system(size: 13, weight: engine.selectedNav == item ? .semibold : .medium))
-                                                .foregroundColor(engine.selectedNav == item ? UniformDesign.textPrimary(mode: engine.appearanceMode) : UniformDesign.textSecondary(mode: engine.appearanceMode))
-                                            Spacer()
-                                        }
-                                        .padding(.vertical, 8)
-                                        .padding(.horizontal, 14)
-                                        .background(
-                                            RoundedRectangle(cornerRadius: 8)
-                                                .fill(engine.selectedNav == item ? UniformDesign.activeHighlight(mode: engine.appearanceMode) : Color.clear)
-                                        )
-                                    }
-                                    .buttonStyle(PlainButtonStyle())
-                                }
+                            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                Text("SAN")
+                                    .font(.system(size: 20, weight: .black, design: .rounded))
+                                    .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
+                                    .tracking(1.5)
+                                
+                                Text("三")
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundColor(engine.activeAccentColor)
                             }
-                            .padding(.horizontal, 12)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 24)
+                            .padding(.bottom, 4)
+                            
+                            // Grouped Sidebar Sections
+                            ScrollView(.vertical, showsIndicators: false) {
+                                VStack(alignment: .leading, spacing: 20) {
+                                    // Section 1: LIBRARY
+                                    SidebarSectionView(title: "LIBRARY", engine: engine) {
+                                        SidebarNavItemButton(item: .library, engine: engine)
+                                        SidebarNavItemButton(item: .albums, engine: engine)
+                                        SidebarNavItemButton(item: .nowPlaying, engine: engine)
+                                        SidebarNavItemButton(item: .folders, engine: engine)
+                                    }
+                                    
+                                    // Section 2: COLLECTIONS
+                                    SidebarSectionView(title: "COLLECTIONS", engine: engine) {
+                                        SidebarNavItemButton(item: .favorites, engine: engine)
+                                        SidebarNavItemButton(item: .playlists, engine: engine)
+                                    }
+                                    
+                                    // Section 3: AUDIO & SYSTEM
+                                    SidebarSectionView(title: "AUDIO & SYSTEM", engine: engine) {
+                                        SidebarNavItemButton(item: .equalizer, engine: engine)
+                                        SidebarNavItemButton(item: .settings, engine: engine)
+                                    }
+                                }
+                                .padding(.horizontal, 12)
+                            }
                             
                             Spacer()
                             
-                            // Folder Mode Quick Button
-                            Button(action: { engine.selectFolderToPlay() }) {
-                                HStack(spacing: 8) {
-                                    Image(systemName: "folder.fill")
-                                        .font(.system(size: 12, weight: .semibold))
-                                    Text("Open Folder")
-                                        .font(.system(size: 13, weight: .semibold))
+                            // Quick Action Buttons
+                            VStack(spacing: 8) {
+                                Button(action: { engine.selectFolderToPlay() }) {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "folder.fill")
+                                            .font(.system(size: 12, weight: .semibold))
+                                            .frame(width: 16)
+                                        Text("Open Folder")
+                                            .font(.system(size: 12, weight: .semibold))
+                                    }
+                                    .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 8)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .fill(UniformDesign.hoverHighlight(mode: engine.appearanceMode))
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 8)
+                                                    .stroke(UniformDesign.borderSubtle(mode: engine.appearanceMode), lineWidth: 1)
+                                            )
+                                    )
                                 }
-                                .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 9)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(UniformDesign.hoverHighlight(mode: engine.appearanceMode))
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 8)
-                                                .stroke(UniformDesign.borderSubtle(mode: engine.appearanceMode), lineWidth: 1)
-                                        )
-                                )
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                            .padding(.horizontal, 14)
-                            
-                            // Add Music File Button
-                            Button(action: { engine.openFiles() }) {
-                                HStack(spacing: 8) {
-                                    Image(systemName: "plus")
-                                        .font(.system(size: 12, weight: .semibold))
-                                    Text("Import Music")
-                                        .font(.system(size: 13, weight: .semibold))
+                                .buttonStyle(PlainButtonStyle())
+                                
+                                Button(action: { engine.openFiles() }) {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "plus.circle.fill")
+                                            .font(.system(size: 12, weight: .semibold))
+                                            .frame(width: 16)
+                                        Text("Import Music")
+                                            .font(.system(size: 12, weight: .semibold))
+                                    }
+                                    .foregroundColor(.black)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 8)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .fill(engine.activeAccentColor)
+                                    )
                                 }
-                                .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 9)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(UniformDesign.hoverHighlight(mode: engine.appearanceMode))
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 8)
-                                                .stroke(UniformDesign.borderSubtle(mode: engine.appearanceMode), lineWidth: 1)
-                                        )
-                                )
+                                .buttonStyle(PlainButtonStyle())
                             }
-                            .buttonStyle(PlainButtonStyle())
                             .padding(.horizontal, 14)
-                            .padding(.bottom, 28)
+                            .padding(.bottom, 20)
                         }
-                        .frame(width: 190)
+                        .frame(width: 200)
                         .background(UniformDesign.bgSidebar(mode: engine.appearanceMode))
                         
                         Rectangle()
