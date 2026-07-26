@@ -1,6 +1,4 @@
-<p align="center">
-  <img src="assets/banner.png" alt="San (三) Music Player Banner" width="100%" />
-</p>
+![San Banner](assets/banner.png)
 
 # San (三)
 
