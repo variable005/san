@@ -896,29 +896,29 @@ struct ContentView: View {
                             
                             // Add Music File Button
                             Button(action: { engine.openFiles() }) {
-                                HStack {
+                                HStack(spacing: 8) {
                                     Image(systemName: "plus")
-                                        .font(.system(size: 13, weight: .semibold))
+                                        .font(.system(size: 12, weight: .semibold))
                                     Text("Import Music")
                                         .font(.system(size: 13, weight: .semibold))
                                 }
                                 .foregroundColor(UniformDesign.textPrimary)
                                 .frame(maxWidth: .infinity)
-                                .padding(.vertical, 10)
+                                .padding(.vertical, 9)
                                 .background(
                                     RoundedRectangle(cornerRadius: 8)
                                         .fill(Color.white.opacity(0.08))
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .stroke(UniformDesign.borderSubtle, lineWidth: 1)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 8)
+                                                .stroke(UniformDesign.borderSubtle, lineWidth: 1)
+                                        )
                                 )
                             }
                             .buttonStyle(PlainButtonStyle())
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 20)
+                            .padding(.horizontal, 14)
+                            .padding(.bottom, 28)
                         }
-                        .frame(width: 200)
+                        .frame(width: 190)
                         .background(UniformDesign.bgSidebar)
                         
                         Rectangle()
