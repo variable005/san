@@ -40,6 +40,7 @@ struct Track: Identifiable, Equatable {
     let sampleRate: Double
     let bitrate: Int
     let channelCount: Int
+    let fileSizeString: String
     
     var audioBadgeText: String {
         let sr = sampleRate > 0 ? String(format: "%.1fkHz", sampleRate / 1000.0) : "44.1kHz"
@@ -58,6 +59,7 @@ struct Track: Identifiable, Equatable {
 enum NavigationItem: String, CaseIterable, Identifiable {
     case library = "Library"
     case nowPlaying = "Now Playing"
+    case folders = "Folder Mode"
     case favorites = "Favorites"
     case playlists = "Playlists"
     case equalizer = "Equalizer"
@@ -69,6 +71,7 @@ enum NavigationItem: String, CaseIterable, Identifiable {
         switch self {
         case .library: return "music.note.list"
         case .nowPlaying: return "play.circle"
+        case .folders: return "folder.fill"
         case .favorites: return "heart.fill"
         case .playlists: return "music.quaver.playlist"
         case .equalizer: return "slider.vertical.3"
@@ -77,11 +80,28 @@ enum NavigationItem: String, CaseIterable, Identifiable {
     }
 }
 
+enum SortOption: String, CaseIterable, Identifiable {
+    case title = "Title"
+    case artist = "Artist"
+    case album = "Album"
+    case duration = "Duration"
+    
+    var id: String { self.rawValue }
+}
+
+struct UserPlaylist: Identifiable, Codable, Equatable {
+    var id = UUID()
+    var name: String
+    var trackPaths: [String]
+}
+
 struct SavedLibraryData: Codable {
     var filePaths: [String]
     var favoritePaths: [String]?
     var eqGains: [Float]?
     var accentTheme: AccentTheme?
+    var userPlaylists: [UserPlaylist]?
+    var lastFolderURL: String?
 }
 
 enum EQPreset: String, CaseIterable, Identifiable {
@@ -122,12 +142,42 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
             audioPlayer?.volume = volume
         }
     }
+    @Published var playbackRate: Float = 1.0 {
+        didSet {
+            if let player = audioPlayer {
+                player.enableRate = true
+                player.rate = playbackRate
+            }
+        }
+    }
+    @Published var pan: Float = 0.0 {
+        didSet {
+            audioPlayer?.pan = pan
+        }
+    }
+    
     @Published var currentTrack: Track?
     @Published var playlist: [Track] = []
     @Published var favoritePaths: Set<String> = []
     @Published var isShuffled: Bool = false
     @Published var isRepeated: Bool = false
     @Published var visualizerLevels: [CGFloat] = Array(repeating: 0.15, count: 16)
+    
+    // Folder Mode State
+    @Published var selectedFolderURL: URL? = nil
+    @Published var folderTracks: [Track] = []
+    
+    // Playlists & Sorting State
+    @Published var userPlaylists: [UserPlaylist] = []
+    @Published var activePlaylistId: UUID? = nil
+    @Published var currentSort: SortOption = .title
+    @Published var newPlaylistName: String = ""
+    @Published var showNewPlaylistPrompt: Bool = false
+    
+    // Sleep Timer State
+    @Published var sleepTimerMinutes: Int = 0 // 0 = off, 15, 30, 45, 60, -1 = end of track
+    @Published var sleepTimerRemainingSeconds: Int = 0
+    private var sleepTimer: Timer?
     
     // Theme Accent State
     @Published var currentAccent: AccentTheme = .white
@@ -140,6 +190,7 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var currentLyrics: [LyricLine] = []
     @Published var activeLyricIndex: Int? = nil
     @Published var showLyrics: Bool = true
+    @Published var inspectingTrack: Track? = nil
     
     // Navigation & UI State
     @Published var selectedNav: NavigationItem = .nowPlaying
@@ -218,7 +269,7 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
             MPMediaItemPropertyAlbumTitle: track.album,
             MPMediaItemPropertyPlaybackDuration: duration,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTime,
-            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1.0 : 0.0
+            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? Double(playbackRate) : 0.0
         ]
         
         if let artwork = track.artwork {
@@ -237,6 +288,9 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
             audioPlayer = try AVAudioPlayer(contentsOf: track.url)
             audioPlayer?.delegate = self
             audioPlayer?.volume = volume
+            audioPlayer?.enableRate = true
+            audioPlayer?.rate = playbackRate
+            audioPlayer?.pan = pan
             audioPlayer?.prepareToPlay()
             audioPlayer?.play()
             
@@ -280,30 +334,121 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
     
     func nextTrack() {
-        guard !playlist.isEmpty else { return }
+        let activeList = currentTrackList()
+        guard !activeList.isEmpty else { return }
         if isShuffled {
-            if let randomTrack = playlist.randomElement() {
+            if let randomTrack = activeList.randomElement() {
                 loadAndPlay(track: randomTrack)
             }
-        } else if let current = currentTrack, let index = playlist.firstIndex(of: current) {
-            let nextIndex = (index + 1) % playlist.count
-            loadAndPlay(track: playlist[nextIndex])
+        } else if let current = currentTrack, let index = activeList.firstIndex(of: current) {
+            let nextIndex = (index + 1) % activeList.count
+            loadAndPlay(track: activeList[nextIndex])
         } else {
-            loadAndPlay(track: playlist[0])
+            loadAndPlay(track: activeList[0])
         }
     }
     
     func previousTrack() {
-        guard !playlist.isEmpty else { return }
+        let activeList = currentTrackList()
+        guard !activeList.isEmpty else { return }
         if currentTime > 3.0 {
             seek(to: 0)
             return
         }
-        if let current = currentTrack, let index = playlist.firstIndex(of: current) {
-            let prevIndex = (index - 1 + playlist.count) % playlist.count
-            loadAndPlay(track: playlist[prevIndex])
+        if let current = currentTrack, let index = activeList.firstIndex(of: current) {
+            let prevIndex = (index - 1 + activeList.count) % activeList.count
+            loadAndPlay(track: activeList[prevIndex])
         } else {
-            loadAndPlay(track: playlist[0])
+            loadAndPlay(track: activeList[0])
+        }
+    }
+    
+    private func currentTrackList() -> [Track] {
+        if selectedNav == .folders && !folderTracks.isEmpty {
+            return folderTracks
+        } else if selectedNav == .favorites {
+            return playlist.filter { isFavorite(track: $0) }
+        } else if selectedNav == .playlists, let id = activePlaylistId, let pl = userPlaylists.first(where: { $0.id == id }) {
+            let paths = Set(pl.trackPaths)
+            return playlist.filter { paths.contains($0.url.path) }
+        }
+        return playlist
+    }
+    
+    // MARK: - Folder Mode & Select Folder Action
+    
+    func selectFolderToPlay() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Select Music Folder"
+        
+        if panel.runModal() == .OK, let folderURL = panel.url {
+            selectedFolderURL = folderURL
+            let scanned = scanDirectory(folderURL)
+            folderTracks = scanned
+            selectedNav = .folders
+            saveLibrary()
+            if let first = scanned.first {
+                loadAndPlay(track: first)
+            }
+        }
+    }
+    
+    // MARK: - Custom Playlist Management
+    
+    func createPlaylist(name: String) {
+        let cleanName = name.trimmingCharacters(in: .whitespaces)
+        guard !cleanName.isEmpty else { return }
+        let newPL = UserPlaylist(name: cleanName, trackPaths: [])
+        userPlaylists.append(newPL)
+        activePlaylistId = newPL.id
+        saveLibrary()
+    }
+    
+    func deletePlaylist(id: UUID) {
+        userPlaylists.removeAll(where: { $0.id == id })
+        if activePlaylistId == id {
+            activePlaylistId = userPlaylists.first?.id
+        }
+        saveLibrary()
+    }
+    
+    func addTrackToPlaylist(track: Track, playlistId: UUID) {
+        if let index = userPlaylists.firstIndex(where: { $0.id == playlistId }) {
+            if !userPlaylists[index].trackPaths.contains(track.url.path) {
+                userPlaylists[index].trackPaths.append(track.url.path)
+                saveLibrary()
+            }
+        }
+    }
+    
+    func removeTrackFromPlaylist(track: Track, playlistId: UUID) {
+        if let index = userPlaylists.firstIndex(where: { $0.id == playlistId }) {
+            userPlaylists[index].trackPaths.removeAll(where: { $0 == track.url.path })
+            saveLibrary()
+        }
+    }
+    
+    // MARK: - Sleep Timer Engine
+    
+    func setSleepTimer(minutes: Int) {
+        sleepTimerMinutes = minutes
+        sleepTimer?.invalidate()
+        sleepTimer = nil
+        
+        if minutes > 0 {
+            sleepTimerRemainingSeconds = minutes * 60
+            sleepTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+                guard let self = self else { return }
+                if self.sleepTimerRemainingSeconds > 0 {
+                    self.sleepTimerRemainingSeconds -= 1
+                } else {
+                    self.togglePlay()
+                    self.setSleepTimer(minutes: 0)
+                }
+            }
         }
     }
     
@@ -474,13 +619,21 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
         var album = "Unknown Album"
         var artworkImage: NSImage?
         
-        var formatName = url.pathExtension.uppercased()
+        let formatName = url.pathExtension.uppercased()
         var sampleRate: Double = 44100
         var bitrate: Int = 320
         var channelCount: Int = 2
         
         let seconds = CMTimeGetSeconds(asset.duration)
         let trackDuration = seconds.isNaN || seconds <= 0 ? 180.0 : seconds
+        
+        // Calculate file size string
+        var sizeString = "Unknown Size"
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+           let bytes = attrs[.size] as? Int64 {
+            let mb = Double(bytes) / 1024.0 / 1024.0
+            sizeString = String(format: "%.1f MB", mb)
+        }
         
         // Inspect Audio Stream Details
         let audioTracks = asset.tracks(withMediaType: .audio)
@@ -535,7 +688,8 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
             formatName: formatName,
             sampleRate: sampleRate,
             bitrate: bitrate,
-            channelCount: channelCount
+            channelCount: channelCount,
+            fileSizeString: sizeString
         )
     }
     
@@ -570,7 +724,9 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
             filePaths: paths,
             favoritePaths: Array(favoritePaths),
             eqGains: eqGains,
-            accentTheme: currentAccent
+            accentTheme: currentAccent,
+            userPlaylists: userPlaylists,
+            lastFolderURL: selectedFolderURL?.path
         )
         do {
             let json = try JSONEncoder().encode(savedData)
@@ -595,6 +751,16 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
             }
             if let gains = savedData.eqGains, gains.count == 5 {
                 self.eqGains = gains
+            }
+            if let pls = savedData.userPlaylists {
+                self.userPlaylists = pls
+            }
+            if let lastFolder = savedData.lastFolderURL {
+                let folderURL = URL(fileURLWithPath: lastFolder)
+                if FileManager.default.fileExists(atPath: lastFolder) {
+                    self.selectedFolderURL = folderURL
+                    self.folderTracks = scanDirectory(folderURL)
+                }
             }
             
             var loadedTracks: [Track] = []
@@ -648,7 +814,10 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
     
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         DispatchQueue.main.async {
-            if self.isRepeated, let current = self.currentTrack {
+            if self.sleepTimerMinutes == -1 {
+                self.isPlaying = false
+                self.setSleepTimer(minutes: 0)
+            } else if self.isRepeated, let current = self.currentTrack {
                 self.loadAndPlay(track: current)
             } else {
                 self.nextTrack()
@@ -783,6 +952,92 @@ struct ModernVisualizerView: View {
     }
 }
 
+// MARK: - Track Inspector Sheet
+
+struct TrackInspectorView: View {
+    let track: Track
+    @ObservedObject var engine: AudioEngine
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack {
+                Text("Track Inspector (100% Offline)")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(.white)
+                Spacer()
+                Button(action: { engine.inspectingTrack = nil }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 18))
+                        .foregroundColor(UniformDesign.textMuted)
+                }.buttonStyle(PlainButtonStyle())
+            }
+            
+            HStack(spacing: 20) {
+                ArtworkView(artwork: track.artwork, size: 100)
+                
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(track.title)
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(.white)
+                    Text(track.artist)
+                        .font(.system(size: 13))
+                        .foregroundColor(UniformDesign.textSecondary)
+                    Text(track.album)
+                        .font(.system(size: 12))
+                        .foregroundColor(UniformDesign.textMuted)
+                    
+                    Text(track.audioBadgeText)
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .foregroundColor(engine.currentAccent.color)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(engine.currentAccent.color.opacity(0.15)))
+                        .padding(.top, 4)
+                }
+            }
+            
+            ModernCard(cornerRadius: 12) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("File Size:")
+                            .foregroundColor(UniformDesign.textMuted)
+                        Spacer()
+                        Text(track.fileSizeString)
+                            .foregroundColor(.white)
+                    }
+                    Divider().background(UniformDesign.borderSubtle)
+                    
+                    HStack {
+                        Text("Channels:")
+                            .foregroundColor(UniformDesign.textMuted)
+                        Spacer()
+                        Text(track.channelCount == 2 ? "Stereo (2 Channels)" : "Mono (1 Channel)")
+                            .foregroundColor(.white)
+                    }
+                    Divider().background(UniformDesign.borderSubtle)
+                    
+                    HStack {
+                        Text("File Path:")
+                            .foregroundColor(UniformDesign.textMuted)
+                        Spacer()
+                        Text(track.url.path)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundColor(.white)
+                            .lineLimit(1)
+                    }
+                }
+                .font(.system(size: 12))
+                .padding(16)
+            }
+        }
+        .padding(24)
+        .frame(width: 480)
+        .background(UniformDesign.bgCard)
+        .cornerRadius(16)
+        .shadow(radius: 20)
+    }
+}
+
 // MARK: - Mini Player Layout View
 
 struct MiniPlayerView: View {
@@ -851,9 +1106,55 @@ struct EqualizerView: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("Graphic Equalizer")
+            Text("Graphic Equalizer & Audio Controls")
                 .font(.system(size: 18, weight: .bold))
                 .foregroundColor(UniformDesign.textPrimary)
+            
+            // Audio Controls (Speed & Pan)
+            ModernCard(cornerRadius: 14) {
+                HStack(spacing: 32) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Playback Speed: \(String(format: "%.2fx", engine.playbackRate))")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(UniformDesign.textPrimary)
+                        
+                        HStack(spacing: 8) {
+                            ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { rate in
+                                Button(action: { engine.playbackRate = Float(rate) }) {
+                                    Text(String(format: "%.2fx", rate))
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundColor(engine.playbackRate == Float(rate) ? .black : .white)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(Capsule().fill(engine.playbackRate == Float(rate) ? engine.currentAccent.color : Color.white.opacity(0.08)))
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
+                        }
+                    }
+                    
+                    Spacer()
+                    
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Stereo Balance (Pan): \(String(format: "%.1f", engine.pan))")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(UniformDesign.textPrimary)
+                        
+                        HStack(spacing: 8) {
+                            Text("L")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(UniformDesign.textMuted)
+                            Slider(value: $engine.pan, in: -1.0...1.0)
+                                .accentColor(engine.currentAccent.color)
+                                .frame(width: 120)
+                            Text("R")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(UniformDesign.textMuted)
+                        }
+                    }
+                }
+                .padding(20)
+            }
             
             // Preset Buttons
             HStack(spacing: 10) {
@@ -907,6 +1208,133 @@ struct EqualizerView: View {
     }
 }
 
+// MARK: - Folder Mode View Component
+
+struct FolderModeView: View {
+    @ObservedObject var engine: AudioEngine
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Folder Mode (100% Offline)")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundColor(UniformDesign.textPrimary)
+                    
+                    if let folder = engine.selectedFolderURL {
+                        Text(folder.path)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundColor(UniformDesign.textSecondary)
+                            .lineLimit(1)
+                    } else {
+                        Text("No folder selected")
+                            .font(.system(size: 12))
+                            .foregroundColor(UniformDesign.textMuted)
+                    }
+                }
+                
+                Spacer()
+                
+                Button(action: { engine.selectFolderToPlay() }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "folder.badge.plus")
+                        Text("Select Folder...")
+                    }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(engine.currentAccent.color.opacity(0.8))
+                    )
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            
+            if engine.folderTracks.isEmpty {
+                ModernCard(cornerRadius: 14) {
+                    VStack(spacing: 14) {
+                        Image(systemName: "folder.fill")
+                            .font(.system(size: 40))
+                            .foregroundColor(UniformDesign.textMuted)
+                        Text("Select a folder to play music directly from it")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(UniformDesign.textPrimary)
+                        Text("San will scan all MP3, WAV, FLAC, M4A files in the selected folder and subfolders.")
+                            .font(.system(size: 12))
+                            .foregroundColor(UniformDesign.textMuted)
+                    }
+                    .padding(40)
+                    .frame(maxWidth: .infinity)
+                }
+            } else {
+                VStack(spacing: 2) {
+                    ForEach(Array(engine.folderTracks.enumerated()), id: \.element.id) { index, track in
+                        let isHovered = engine.hoveredTrackId == track.id
+                        let isSelected = engine.currentTrack == track
+                        
+                        HStack(spacing: 14) {
+                            Text("\(index + 1)")
+                                .font(.system(size: 12, design: .monospaced))
+                                .foregroundColor(UniformDesign.textMuted)
+                                .frame(width: 24, alignment: .trailing)
+                            
+                            ArtworkView(artwork: track.artwork, size: 32)
+                            
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(track.title)
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundColor(isSelected ? engine.currentAccent.color : UniformDesign.textPrimary)
+                                    .lineLimit(1)
+                                Text(track.artist)
+                                    .font(.system(size: 11))
+                                    .foregroundColor(UniformDesign.textSecondary)
+                                    .lineLimit(1)
+                            }
+                            
+                            Spacer()
+                            
+                            Text(track.audioBadgeText)
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundColor(UniformDesign.textMuted)
+                            
+                            Text(formatTime(track.duration))
+                                .font(.system(size: 12, design: .monospaced))
+                                .foregroundColor(UniformDesign.textMuted)
+                            
+                            Button(action: { engine.loadAndPlay(track: track) }) {
+                                Image(systemName: isSelected && engine.isPlaying ? "pause.fill" : "play.fill")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(UniformDesign.textPrimary)
+                                    .padding(6)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(isSelected ? UniformDesign.activeHighlight : (isHovered ? UniformDesign.hoverHighlight : Color.clear))
+                        )
+                        .onHover { hovering in
+                            engine.hoveredTrackId = hovering ? track.id : nil
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 24)
+    }
+    
+    private func formatTime(_ seconds: TimeInterval) -> String {
+        guard !seconds.isNaN && seconds >= 0 else { return "00:00" }
+        let mins = Int(seconds) / 60
+        let secs = Int(seconds) % 60
+        return String(format: "%02d:%02d", mins, secs)
+    }
+}
+
 // MARK: - Settings View Component
 
 struct SettingsView: View {
@@ -917,6 +1345,39 @@ struct SettingsView: View {
             Text("Settings & Customization")
                 .font(.system(size: 18, weight: .bold))
                 .foregroundColor(UniformDesign.textPrimary)
+            
+            // Sleep Timer Section
+            ModernCard(cornerRadius: 14) {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack {
+                        Text("Sleep Timer")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(UniformDesign.textPrimary)
+                        Spacer()
+                        if engine.sleepTimerRemainingSeconds > 0 {
+                            Text("Stopping in \(engine.sleepTimerRemainingSeconds / 60):\(String(format: "%02d", engine.sleepTimerRemainingSeconds % 60))")
+                                .font(.system(size: 12, design: .monospaced))
+                                .foregroundColor(engine.currentAccent.color)
+                        }
+                    }
+                    
+                    HStack(spacing: 10) {
+                        ForEach([0, 15, 30, 45, 60, -1], id: \.self) { mins in
+                            Button(action: { engine.setSleepTimer(minutes: mins) }) {
+                                Text(mins == 0 ? "Off" : (mins == -1 ? "End of Track" : "\(mins) mins"))
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(engine.sleepTimerMinutes == mins ? .black : UniformDesign.textPrimary)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(Capsule().fill(engine.sleepTimerMinutes == mins ? engine.currentAccent.color : Color.white.opacity(0.08)))
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                    }
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
             
             // Accent Color Picker Section
             ModernCard(cornerRadius: 14) {
@@ -979,6 +1440,15 @@ struct SettingsView: View {
                         Divider().background(UniformDesign.borderSubtle)
                         
                         HStack {
+                            Text("Network Status:")
+                                .foregroundColor(UniformDesign.textSecondary)
+                            Spacer()
+                            Text("100% Offline (No Telemetry)")
+                                .foregroundColor(engine.currentAccent.color)
+                        }
+                        Divider().background(UniformDesign.borderSubtle)
+                        
+                        HStack {
                             Text("Architecture:")
                                 .foregroundColor(UniformDesign.textSecondary)
                             Spacer()
@@ -1016,14 +1486,23 @@ struct ContentView: View {
             baseList = baseList.filter { engine.isFavorite(track: $0) }
         }
         
-        if engine.searchText.isEmpty {
-            return baseList
-        } else {
-            return baseList.filter {
+        if !engine.searchText.isEmpty {
+            baseList = baseList.filter {
                 $0.title.localizedCaseInsensitiveContains(engine.searchText) ||
                 $0.artist.localizedCaseInsensitiveContains(engine.searchText) ||
                 $0.album.localizedCaseInsensitiveContains(engine.searchText)
             }
+        }
+        
+        switch engine.currentSort {
+        case .title:
+            return baseList.sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
+        case .artist:
+            return baseList.sorted { $0.artist.localizedCompare($1.artist) == .orderedAscending }
+        case .album:
+            return baseList.sorted { $0.album.localizedCompare($1.album) == .orderedAscending }
+        case .duration:
+            return baseList.sorted { $0.duration < $1.duration }
         }
     }
     
@@ -1081,6 +1560,29 @@ struct ContentView: View {
                             
                             Spacer()
                             
+                            // Folder Mode Quick Button
+                            Button(action: { engine.selectFolderToPlay() }) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "folder.fill")
+                                        .font(.system(size: 12, weight: .semibold))
+                                    Text("Open Folder")
+                                        .font(.system(size: 13, weight: .semibold))
+                                }
+                                .foregroundColor(UniformDesign.textPrimary)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 9)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(Color.white.opacity(0.08))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 8)
+                                                .stroke(UniformDesign.borderSubtle, lineWidth: 1)
+                                        )
+                                )
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                            .padding(.horizontal, 14)
+                            
                             // Add Music File Button
                             Button(action: { engine.openFiles() }) {
                                 HStack(spacing: 8) {
@@ -1131,7 +1633,16 @@ struct ContentView: View {
                                     RoundedRectangle(cornerRadius: 8)
                                         .fill(Color.white.opacity(0.06))
                                 )
-                                .frame(maxWidth: 320)
+                                .frame(maxWidth: 300)
+                                
+                                // Sort Picker
+                                Picker("Sort", selection: $engine.currentSort) {
+                                    ForEach(SortOption.allCases) { option in
+                                        Text("Sort: \(option.rawValue)").tag(option)
+                                    }
+                                }
+                                .pickerStyle(MenuPickerStyle())
+                                .frame(width: 130)
                                 
                                 Spacer()
                                 
@@ -1164,6 +1675,8 @@ struct ContentView: View {
                                         EqualizerView(engine: engine)
                                     } else if engine.selectedNav == .settings {
                                         SettingsView(engine: engine)
+                                    } else if engine.selectedNav == .folders {
+                                        FolderModeView(engine: engine)
                                     } else {
                                         if engine.selectedNav == .nowPlaying || engine.playlist.isEmpty {
                                             // Now Playing Stage with Hi-Res Badge & Lyrics Toggle
@@ -1187,6 +1700,15 @@ struct ContentView: View {
                                                                         .lineLimit(1)
                                                                 }
                                                                 Spacer()
+                                                                
+                                                                // Inspect Info Button
+                                                                Button(action: { engine.inspectingTrack = track }) {
+                                                                    Image(systemName: "info.circle")
+                                                                        .font(.system(size: 14, weight: .medium))
+                                                                        .foregroundColor(UniformDesign.textMuted)
+                                                                        .padding(6)
+                                                                }
+                                                                .buttonStyle(PlainButtonStyle())
                                                                 
                                                                 // Lyrics Toggle Button
                                                                 Button(action: { engine.showLyrics.toggle() }) {
@@ -1277,22 +1799,37 @@ struct ContentView: View {
                                                         Text("Drag & Drop Music Files Here")
                                                             .font(.system(size: 18, weight: .semibold))
                                                             .foregroundColor(UniformDesign.textPrimary)
-                                                        Text("Or click 'Import Music' to select audio files from Finder")
+                                                        Text("Or click 'Open Folder' to play music directly from any directory")
                                                             .font(.system(size: 13))
                                                             .foregroundColor(UniformDesign.textMuted)
                                                         
-                                                        Button(action: { engine.openFiles() }) {
-                                                            Text("Open Files")
-                                                                .font(.system(size: 13, weight: .semibold))
-                                                                .foregroundColor(UniformDesign.textPrimary)
-                                                                .padding(.horizontal, 20)
-                                                                .padding(.vertical, 8)
-                                                                .background(
-                                                                    RoundedRectangle(cornerRadius: 8)
-                                                                        .fill(Color.white.opacity(0.12))
-                                                                )
+                                                        HStack(spacing: 12) {
+                                                            Button(action: { engine.selectFolderToPlay() }) {
+                                                                Text("Open Folder")
+                                                                    .font(.system(size: 13, weight: .semibold))
+                                                                    .foregroundColor(.black)
+                                                                    .padding(.horizontal, 20)
+                                                                    .padding(.vertical, 8)
+                                                                    .background(
+                                                                        RoundedRectangle(cornerRadius: 8)
+                                                                            .fill(engine.currentAccent.color)
+                                                                    )
+                                                            }
+                                                            .buttonStyle(PlainButtonStyle())
+                                                            
+                                                            Button(action: { engine.openFiles() }) {
+                                                                Text("Open Files")
+                                                                    .font(.system(size: 13, weight: .semibold))
+                                                                    .foregroundColor(UniformDesign.textPrimary)
+                                                                    .padding(.horizontal, 20)
+                                                                    .padding(.vertical, 8)
+                                                                    .background(
+                                                                        RoundedRectangle(cornerRadius: 8)
+                                                                            .fill(Color.white.opacity(0.12))
+                                                                    )
+                                                            }
+                                                            .buttonStyle(PlainButtonStyle())
                                                         }
-                                                        .buttonStyle(PlainButtonStyle())
                                                     }
                                                     .padding(36)
                                                 }
@@ -1340,6 +1877,13 @@ struct ContentView: View {
                                                             }
                                                             
                                                             Spacer()
+                                                            
+                                                            Button(action: { engine.inspectingTrack = track }) {
+                                                                Image(systemName: "info.circle")
+                                                                    .font(.system(size: 12))
+                                                                    .foregroundColor(UniformDesign.textMuted)
+                                                            }
+                                                            .buttonStyle(PlainButtonStyle())
                                                             
                                                             Button(action: { engine.toggleFavorite(track: track) }) {
                                                                 Image(systemName: engine.isFavorite(track: track) ? "heart.fill" : "heart")
@@ -1505,6 +2049,9 @@ struct ContentView: View {
                         engine.handleDroppedURLs(urls)
                     }
                     return true
+                }
+                .sheet(item: $engine.inspectingTrack) { track in
+                    TrackInspectorView(track: track, engine: engine)
                 }
             }
         }

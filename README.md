@@ -11,18 +11,27 @@
 
 ### Performance and Architecture
 - **Ultra Lightweight (~360 KB)**: Built natively with `SwiftUI`, `AppKit`, `AVFoundation`, and `MediaPlayer`. Launches instantly with a low memory footprint.
-- **100% Offline and Private**: Zero network dependencies, zero tracking, zero login. Runs completely on local hardware.
-- **Apple Silicon Native**: Compiled to `arm64` machine code for M-series Mac processors.
+- **100% Offline and Private**: Zero network dependencies, zero tracking, zero telemetry, zero login. All metadata parsing and audio processing take place strictly on local hardware.
+- **Apple Silicon Native**: Compiled directly to `arm64` machine code for M-series Mac processors.
 
-### Audiophile and Sound Control
+### Folder Mode and Directory Playback
+- **Select Folder to Play (Folder Browser)**: Select any folder on disk (`~/Music`, external drives, or custom folders) to browse and play audio files strictly within that directory structure.
+- **Auto-Scan Subdirectories**: Recursively scans folders for `.mp3`, `.wav`, `.flac`, `.m4a`, and `.aac` tracks.
+
+### Audiophile and Audio Controls
 - **Hi-Res Audio Info Badge**: Displays real-time audio specifications (sample rate, bit depth, format, bitrate e.g., `FLAC • 96.0kHz • 1411 kbps`).
 - **Graphic Equalizer (EQ)**: 5-band frequency control (60Hz, 230Hz, 910Hz, 3.6kHz, 14kHz) with presets (*Flat*, *Bass Boost*, *Treble Boost*, *Vocal*, *Electronic*).
+- **Variable Playback Speed**: 0.5x, 0.75x, 1.0x, 1.25x, 1.5x, and 2.0x playback rate selector.
+- **Stereo Balance (Pan Control)**: Fine-tuned Left/Right channel audio balance slider.
 - **Synced Real-Time Lyrics**: Automatically loads `.lrc` timestamped lyrics files and highlights active singing lines in real-time.
 
-### Playback and Library
+### Playback, Library, and Storage
+- **Sleep Timer**: Auto-stop playback countdown timer (15m, 30m, 45m, 60m, or end of track).
+- **Custom Playlists**: Create, rename, and add/remove tracks from custom playlists.
+- **Track Inspector**: View detailed offline file metadata (file size, channel count, sample rate, exact path).
 - **Favorites System**: One-click heart button to star tracks and filter dedicated favorite playlists.
-- **Drag and Drop Import**: Drag `.mp3`, `.wav`, `.flac`, `.m4a`, or entire music folders from Finder directly into the application window.
-- **Persistent Storage**: Saves imported track paths to `~/Library/Application Support/San/library.json` so playlists and theme settings persist across restarts.
+- **Drag and Drop Import**: Drag audio files or folders from Finder directly into the application window.
+- **Persistent Storage**: Saves imported track paths to `~/Library/Application Support/San/library.json` so playlists, last folder path, and theme settings persist across restarts.
 
 ### macOS Integration and Interface
 - **Mac Media Keys and Hotkeys**: Full hardware play/pause, next track, and previous track media key support on Apple keyboards (`MPRemoteCommandCenter`).
