@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import AVFoundation
+import MediaPlayer
 import Combine
 import UniformTypeIdentifiers
 
@@ -38,6 +39,10 @@ enum NavigationItem: String, CaseIterable, Identifiable {
     }
 }
 
+struct SavedLibraryData: Codable {
+    var filePaths: [String]
+}
+
 // MARK: - Audio Engine & App State Controller
 
 class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
@@ -61,6 +66,7 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var searchText: String = ""
     @Published var hoveredButtonId: String? = nil
     @Published var hoveredTrackId: UUID? = nil
+    @Published var isDropTargeted: Bool = false
     
     private var audioPlayer: AVAudioPlayer?
     private var timer: Timer?
@@ -68,7 +74,81 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
     
     override init() {
         super.init()
+        setupRemoteCommandCenter()
+        loadLibrary()
     }
+    
+    // MARK: - Media Keys & Remote Command Center
+    
+    private func setupRemoteCommandCenter() {
+        let commandCenter = MPRemoteCommandCenter.shared()
+        
+        commandCenter.playCommand.isEnabled = true
+        commandCenter.playCommand.addTarget { [weak self] _ in
+            self?.togglePlay()
+            return .success
+        }
+        
+        commandCenter.pauseCommand.isEnabled = true
+        commandCenter.pauseCommand.addTarget { [weak self] _ in
+            self?.togglePlay()
+            return .success
+        }
+        
+        commandCenter.togglePlayPauseCommand.isEnabled = true
+        commandCenter.togglePlayPauseCommand.addTarget { [weak self] _ in
+            self?.togglePlay()
+            return .success
+        }
+        
+        commandCenter.nextTrackCommand.isEnabled = true
+        commandCenter.nextTrackCommand.addTarget { [weak self] _ in
+            self?.nextTrack()
+            return .success
+        }
+        
+        commandCenter.previousTrackCommand.isEnabled = true
+        commandCenter.previousTrackCommand.addTarget { [weak self] _ in
+            self?.previousTrack()
+            return .success
+        }
+        
+        commandCenter.changePlaybackPositionCommand.isEnabled = true
+        commandCenter.changePlaybackPositionCommand.addTarget { [weak self] event in
+            if let posEvent = event as? MPChangePlaybackPositionCommandEvent {
+                self?.seek(to: posEvent.positionTime)
+                return .success
+            }
+            return .commandFailed
+        }
+    }
+    
+    // MARK: - Control Center & Lock Screen Sync
+    
+    func updateNowPlayingInfo() {
+        guard let track = currentTrack else {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            return
+        }
+        
+        var info: [String: Any] = [
+            MPMediaItemPropertyTitle: track.title,
+            MPMediaItemPropertyArtist: track.artist,
+            MPMediaItemPropertyAlbumTitle: track.album,
+            MPMediaItemPropertyPlaybackDuration: duration,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTime,
+            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1.0 : 0.0
+        ]
+        
+        if let artwork = track.artwork {
+            let mpArtwork = MPMediaItemArtwork(boundsSize: artwork.size) { _ in artwork }
+            info[MPMediaItemPropertyArtwork] = mpArtwork
+        }
+        
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    }
+    
+    // MARK: - Playback Logic
     
     func loadAndPlay(track: Track) {
         currentTrack = track
@@ -84,6 +164,7 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
             currentTime = 0
             
             startTimers()
+            updateNowPlayingInfo()
         } catch {
             print("Failed to play track: \(error.localizedDescription)")
         }
@@ -106,11 +187,13 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
             isPlaying = true
             startTimers()
         }
+        updateNowPlayingInfo()
     }
     
     func seek(to time: TimeInterval) {
         audioPlayer?.currentTime = time
         currentTime = time
+        updateNowPlayingInfo()
     }
     
     func nextTrack() {
@@ -141,7 +224,34 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
         }
     }
     
-    // MARK: - File Import & Metadata Extraction
+    // MARK: - File Import & Drag and Drop
+    
+    func handleDroppedURLs(_ urls: [URL]) {
+        var newTracks: [Track] = []
+        for url in urls {
+            if url.hasDirectoryPath {
+                newTracks.append(contentsOf: scanDirectory(url))
+            } else {
+                let ext = url.pathExtension.lowercased()
+                if ["mp3", "wav", "m4a", "flac", "aac"].contains(ext) {
+                    if let track = extractMetadata(from: url) {
+                        newTracks.append(track)
+                    }
+                }
+            }
+        }
+        
+        DispatchQueue.main.async {
+            let uniqueTracks = newTracks.filter { track in
+                !self.playlist.contains(where: { $0.url == track.url })
+            }
+            self.playlist.append(contentsOf: uniqueTracks)
+            self.saveLibrary()
+            if self.currentTrack == nil, let first = self.playlist.first {
+                self.loadAndPlay(track: first)
+            }
+        }
+    }
     
     func openFiles() {
         let panel = NSOpenPanel()
@@ -151,26 +261,7 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
         panel.allowedContentTypes = [.audio, .mp3, .wav, .mpeg4Audio]
         
         if panel.runModal() == .OK {
-            var newTracks: [Track] = []
-            for url in panel.urls {
-                if url.hasDirectoryPath {
-                    newTracks.append(contentsOf: scanDirectory(url))
-                } else {
-                    if let track = extractMetadata(from: url) {
-                        newTracks.append(track)
-                    }
-                }
-            }
-            
-            DispatchQueue.main.async {
-                let uniqueTracks = newTracks.filter { track in
-                    !self.playlist.contains(where: { $0.url == track.url })
-                }
-                self.playlist.append(contentsOf: uniqueTracks)
-                if self.currentTrack == nil, let first = self.playlist.first {
-                    self.loadAndPlay(track: first)
-                }
-            }
+            handleDroppedURLs(panel.urls)
         }
     }
     
@@ -227,6 +318,55 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
         return Track(url: url, title: title, artist: artist, album: album, duration: trackDuration, artwork: artworkImage)
     }
     
+    // MARK: - Persistent Storage (library.json)
+    
+    private var libraryStorageURL: URL {
+        let fileManager = FileManager.default
+        let appSupportDir = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let sanDir = appSupportDir.appendingPathComponent("San", isDirectory: true)
+        try? fileManager.createDirectory(at: sanDir, withIntermediateDirectories: true)
+        return sanDir.appendingPathComponent("library.json")
+    }
+    
+    func saveLibrary() {
+        let paths = playlist.map { $0.url.path }
+        let savedData = SavedLibraryData(filePaths: paths)
+        do {
+            let json = try JSONEncoder().encode(savedData)
+            try json.write(to: libraryStorageURL)
+        } catch {
+            print("Failed to save library: \(error.localizedDescription)")
+        }
+    }
+    
+    func loadLibrary() {
+        let url = libraryStorageURL
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        do {
+            let data = try Data(contentsOf: url)
+            let savedData = try JSONDecoder().decode(SavedLibraryData.self, from: data)
+            
+            var loadedTracks: [Track] = []
+            for path in savedData.filePaths {
+                let fileURL = URL(fileURLWithPath: path)
+                if FileManager.default.fileExists(atPath: path), let track = extractMetadata(from: fileURL) {
+                    loadedTracks.append(track)
+                }
+            }
+            
+            DispatchQueue.main.async {
+                self.playlist = loadedTracks
+                if self.currentTrack == nil, let first = self.playlist.first {
+                    self.currentTrack = first
+                    self.duration = first.duration
+                    self.updateNowPlayingInfo()
+                }
+            }
+        } catch {
+            print("Failed to load saved library: \(error.localizedDescription)")
+        }
+    }
+    
     // MARK: - Timers & Visualizer
     
     private func startTimers() {
@@ -234,6 +374,7 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
         timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             guard let self = self, let player = self.audioPlayer else { return }
             self.currentTime = player.currentTime
+            self.updateNowPlayingInfo()
         }
         
         visualizerTimer = Timer.scheduledTimer(withTimeInterval: 0.08, repeats: true) { [weak self] _ in
@@ -263,7 +404,7 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
 }
 
-// MARK: - Modern UI Components (Clean, Solid, Minimalist)
+// MARK: - Modern UI Components
 
 struct ModernCard<Content: View>: View {
     var cornerRadius: CGFloat = 16
@@ -374,7 +515,7 @@ struct ModernVisualizerView: View {
     }
 }
 
-// MARK: - Main Application View
+// MARK: - Main Application View with Drag & Drop & Hotkeys
 
 struct ContentView: View {
     @StateObject private var engine = AudioEngine()
@@ -535,13 +676,13 @@ struct ContentView: View {
                                         .padding(24)
                                     } else {
                                         VStack(spacing: 14) {
-                                            Image(systemName: "music.note")
+                                            Image(systemName: "arrow.down.doc.fill")
                                                 .font(.system(size: 40, weight: .light))
                                                 .foregroundColor(Color.white.opacity(0.4))
-                                            Text("No Track Playing")
+                                            Text("Drag & Drop Music Files Here")
                                                 .font(.system(size: 18, weight: .semibold))
                                                 .foregroundColor(.white)
-                                            Text("Click 'Import Music' to select local audio files")
+                                            Text("Or click 'Import Music' to select audio files from Finder")
                                                 .font(.system(size: 13))
                                                 .foregroundColor(Color.white.opacity(0.4))
                                             
@@ -573,7 +714,7 @@ struct ContentView: View {
                                 
                                 if filteredPlaylist.isEmpty {
                                     VStack {
-                                        Text("No music in library yet.")
+                                        Text("No music in library yet. Drag and drop audio files anywhere!")
                                             .font(.system(size: 13))
                                             .foregroundColor(Color.white.opacity(0.4))
                                             .padding(24)
@@ -731,6 +872,29 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 960, minHeight: 640)
+        .overlay(
+            RoundedRectangle(cornerRadius: 0)
+                .stroke(engine.isDropTargeted ? Color.white.opacity(0.6) : Color.clear, lineWidth: 3)
+        )
+        .onDrop(of: [.fileURL], isTargeted: $engine.isDropTargeted) { providers in
+            var urls: [URL] = []
+            let group = DispatchGroup()
+            
+            for provider in providers {
+                group.enter()
+                _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                    if let url = url {
+                        urls.append(url)
+                    }
+                    group.leave()
+                }
+            }
+            
+            group.notify(queue: .main) {
+                engine.handleDroppedURLs(urls)
+            }
+            return true
+        }
     }
     
     private func formatTime(_ seconds: TimeInterval) -> String {

@@ -23,6 +23,7 @@ swiftc -sdk "$SDK_PATH" \
        -framework SwiftUI \
        -framework AppKit \
        -framework AVFoundation \
+       -framework MediaPlayer \
        -framework Combine \
        -framework UniformTypeIdentifiers \
        "$PROJECT_DIR/src/main.swift" \
