@@ -2551,6 +2551,7 @@ struct ContentView: View {
                             .padding(.bottom, 20)
                         }
                         .frame(width: 200)
+                        .frame(maxHeight: .infinity)
                         .background(UniformDesign.bgSidebar(mode: engine.appearanceMode))
                         
                         Rectangle()
@@ -2687,7 +2688,7 @@ struct ContentView: View {
                                                             
                                                             ModernVisualizerView(levels: engine.visualizerLevels, accentColor: engine.activeAccentColor)
                                                         }
-                                                        .frame(width: engine.showLyrics ? 220 : .infinity, alignment: .leading)
+                                                        .frame(maxWidth: engine.showLyrics ? 260 : .infinity, alignment: .leading)
                                                         
                                                         // Synced Lyrics Display Panel
                                                         if engine.showLyrics {
@@ -2933,7 +2934,7 @@ struct ContentView: View {
                                             }
                                         }
                                     }
-                                    .frame(width: 220, alignment: .leading)
+                                    .frame(minWidth: 160, maxWidth: 260, alignment: .leading)
                                     .contentShape(Rectangle())
                                     .onTapGesture {
                                         withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
@@ -2997,16 +2998,17 @@ struct ContentView: View {
                                                 .frame(width: 80)
                                         }
                                     }
-                                    .frame(width: 220, alignment: .trailing)
+                                    .frame(minWidth: 160, maxWidth: 260, alignment: .trailing)
                                 }
                                 .padding(.horizontal, 20)
                                 .padding(.bottom, 10)
                             }
                             .background(UniformDesign.bgBottomBar(mode: engine.appearanceMode))
                         }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
-                .frame(minWidth: 960, minHeight: 640)
+                .frame(minWidth: 780, maxWidth: .infinity, minHeight: 520, maxHeight: .infinity)
                 .overlay(
                     RoundedRectangle(cornerRadius: 0)
                         .stroke(engine.isDropTargeted ? engine.activeAccentColor.opacity(0.6) : Color.clear, lineWidth: 3)
