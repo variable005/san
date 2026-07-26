@@ -2463,19 +2463,13 @@ struct ContentView: View {
                         // MARK: Sidebar Navigation
                         VStack(alignment: .leading, spacing: 20) {
                             // App Brand Header
-                            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                                Text("SAN")
-                                    .font(.system(size: 20, weight: .black, design: .rounded))
-                                    .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
-                                    .tracking(1.5)
-                                
-                                Text("三")
-                                    .font(.system(size: 13, weight: .bold))
-                                    .foregroundColor(engine.activeAccentColor)
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.top, 24)
-                            .padding(.bottom, 4)
+                            Text("SAN")
+                                .font(.system(size: 20, weight: .black, design: .rounded))
+                                .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
+                                .tracking(2.0)
+                                .padding(.horizontal, 16)
+                                .padding(.top, 24)
+                                .padding(.bottom, 6)
                             
                             // Grouped Sidebar Sections
                             ScrollView(.vertical, showsIndicators: false) {
@@ -2633,18 +2627,30 @@ struct ContentView: View {
                                                         VStack(alignment: .leading, spacing: 14) {
                                                             ArtworkView(artwork: track.artwork, size: 160, isPlaying: engine.isPlaying, accentColor: engine.activeAccentColor, animationOption: engine.playerAnimation)
                                                             
-                                                            HStack {
-                                                                VStack(alignment: .leading, spacing: 4) {
-                                                                    Text(track.title)
-                                                                        .font(.system(size: 18, weight: .bold))
-                                                                        .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
-                                                                        .lineLimit(1)
-                                                                    
-                                                                    Text(track.artist)
-                                                                        .font(.system(size: 13, weight: .medium))
-                                                                        .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
-                                                                        .lineLimit(1)
-                                                                }
+                                                            VStack(alignment: .leading, spacing: 4) {
+                                                                Text(track.title)
+                                                                    .font(.system(size: 18, weight: .bold))
+                                                                    .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
+                                                                    .lineLimit(2)
+                                                                    .fixedSize(horizontal: false, vertical: true)
+                                                                
+                                                                Text(track.artist)
+                                                                    .font(.system(size: 13, weight: .medium))
+                                                                    .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
+                                                                    .lineLimit(1)
+                                                            }
+                                                            
+                                                            HStack(spacing: 8) {
+                                                                // Hi-Res Audio Info Badge
+                                                                Text(track.audioBadgeText)
+                                                                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                                                    .foregroundColor(engine.activeAccentColor)
+                                                                    .padding(.horizontal, 8)
+                                                                    .padding(.vertical, 4)
+                                                                    .background(
+                                                                        Capsule().fill(engine.activeAccentColor.opacity(0.12))
+                                                                    )
+                                                                
                                                                 Spacer()
                                                                 
                                                                 // Inspect Info Button
@@ -2676,19 +2682,9 @@ struct ContentView: View {
                                                                 .buttonStyle(PlainButtonStyle())
                                                             }
                                                             
-                                                            // Hi-Res Audio Info Badge
-                                                            Text(track.audioBadgeText)
-                                                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                                                                .foregroundColor(engine.activeAccentColor)
-                                                                .padding(.horizontal, 8)
-                                                                .padding(.vertical, 4)
-                                                                .background(
-                                                                    Capsule().fill(engine.activeAccentColor.opacity(0.12))
-                                                                )
-                                                            
                                                             ModernVisualizerView(levels: engine.visualizerLevels, accentColor: engine.activeAccentColor)
                                                         }
-                                                        .frame(maxWidth: engine.showLyrics ? 260 : .infinity, alignment: .leading)
+                                                        .frame(minWidth: 260, maxWidth: engine.showLyrics ? 380 : .infinity, alignment: .leading)
                                                         
                                                         // Synced Lyrics Display Panel
                                                         if engine.showLyrics {
