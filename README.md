@@ -18,6 +18,11 @@
 - **Select Folder to Play (Folder Browser)**: Select any folder on disk (`~/Music`, external drives, or custom folders) to browse and play audio files strictly within that directory structure.
 - **Auto-Scan Subdirectories**: Recursively scans folders for `.mp3`, `.wav`, `.flac`, `.m4a`, and `.aac` tracks.
 
+### Up Next Play Queue and Album Grid
+- **📜 Up Next Play Queue**: Right-click or tap any track to select **Play Next** or **Add to Queue**. Queued songs play with highest priority.
+- **Queue Drawer Panel**: View upcoming queued tracks, remove items, or clear the queue from the bottom player bar (with active queue badge counter).
+- **🎨 Visual Album Grid View**: Browse library tracks grouped into responsive high-resolution album cover cards (`Albums` tab). Click an album to view its tracks or play the entire album.
+
 ### Audiophile and Audio Controls
 - **Hi-Res Audio Info Badge**: Displays real-time audio specifications (sample rate, bit depth, format, bitrate e.g., `FLAC • 96.0kHz • 1411 kbps`).
 - **Graphic Equalizer (EQ)**: 5-band frequency control (60Hz, 230Hz, 910Hz, 3.6kHz, 14kHz) with presets (*Flat*, *Bass Boost*, *Treble Boost*, *Vocal*, *Electronic*).
@@ -28,7 +33,7 @@
 ### Playback, Library, and Storage
 - **Sleep Timer**: Auto-stop playback countdown timer (15m, 30m, 45m, 60m, or end of track).
 - **Custom Playlists**: Create, rename, and add/remove tracks from custom playlists.
-- **Track Inspector**: View detailed offline file metadata (file size, channel count, sample rate, exact path).
+- **Track Inspector**: View detailed offline file metadata (file size, channel count, sample rate, bit depth, format, exact path).
 - **Favorites System**: One-click heart button to star tracks and filter dedicated favorite playlists.
 - **Drag and Drop Import**: Drag audio files or folders from Finder directly into the application window.
 - **Persistent Storage**: Saves imported track paths to `~/Library/Application Support/San/library.json` so playlists, last folder path, and theme settings persist across restarts.
@@ -36,6 +41,7 @@
 ### macOS Integration and Interface
 - **Mac Media Keys and Hotkeys**: Full hardware play/pause, next track, and previous track media key support on Apple keyboards (`MPRemoteCommandCenter`).
 - **macOS Control Center and Lock Screen Sync**: Live track title, artist name, artwork, and progress bar sync (`MPNowPlayingInfoCenter`).
+- **Animated Now Playing Expand**: Click the bottom player bar info box to smoothly expand into the full Now Playing stage with a spring animation.
 - **Compact Mini-Player Mode**: Press `Cmd + M` to toggle a stay-on-top floating desktop widget.
 - **Custom Accent Color Themes**: Select from 5 minimalist accent themes (*Minimalist White*, *Emerald*, *Sapphire*, *Crimson*, *Amber*) in the Settings tab.
 - **Modern Dark Minimalist UI**: Matte dark background (`#141417`), 1px borders, high-contrast monochrome controls, and real-time audio visualizer.
