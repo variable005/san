@@ -173,7 +173,7 @@ enum PlayerAnimationOption: String, CaseIterable, Identifiable, Codable {
     case vinylSpin = "Vinyl Record Spin"
     case waveSpectrum = "Wave Spectrum Ring"
     case floatingCard = "Floating Glass Card"
-    case neonAura = "Neon Aura Glow"
+    case ambientAura = "Ambient Aura Glow"
     case gentleEase = "Gentle Ease"
     case snappyLinear = "Snappy Fast"
     
@@ -185,7 +185,7 @@ enum PlayerAnimationOption: String, CaseIterable, Identifiable, Codable {
         case .vinylSpin: return .interactiveSpring(response: 0.45, dampingFraction: 0.65)
         case .waveSpectrum: return .spring(response: 0.5, dampingFraction: 0.6)
         case .floatingCard: return .easeInOut(duration: 0.6)
-        case .neonAura: return .easeInOut(duration: 0.8)
+        case .ambientAura: return .easeInOut(duration: 0.8)
         case .gentleEase: return .easeInOut(duration: 0.4)
         case .snappyLinear: return .linear(duration: 0.15)
         }
@@ -1637,7 +1637,7 @@ struct ArtworkView: View {
                     .overlay(Circle().stroke(isPlaying ? accentColor : Color.white.opacity(0.2), lineWidth: 2))
                     .shadow(color: isPlaying ? accentColor.opacity(0.5) : Color.black.opacity(0.3), radius: isPlaying ? 16 : 8)
                 }
-            } else if animationOption == .neonAura {
+            } else if animationOption == .ambientAura {
                 ZStack {
                     // Neon Aura Radial Glow
                     Circle()
@@ -3119,7 +3119,7 @@ struct SettingsView: View {
                                 case .vinylSpin: return "record.circle.fill"
                                 case .waveSpectrum: return "waveform"
                                 case .floatingCard: return "square.stack.3d.up.fill"
-                                case .neonAura: return "sun.max.fill"
+                                case .ambientAura: return "sun.max.fill"
                                 case .gentleEase: return "wave.3.right"
                                 case .snappyLinear: return "bolt.fill"
                                 }
