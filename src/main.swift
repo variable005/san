@@ -667,13 +667,46 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
                         if let val = item.value as? String, !val.isEmpty { artist = val }
                     case "albumName":
                         if let val = item.value as? String, !val.isEmpty { album = val }
-                    case "artwork":
-                        if let data = item.value as? Data, let img = NSImage(data: data) {
-                            artworkImage = img
-                        }
                     default:
                         break
                     }
+                }
+            }
+        }
+        
+        // 1. Try Common Artwork items
+        let commonArtwork = AVMetadataItem.metadataItems(from: asset.commonMetadata, withKey: AVMetadataKey.commonKeyArtwork, keySpace: .common)
+        if let firstArt = commonArtwork.first, let data = firstArt.value as? Data, let img = NSImage(data: data) {
+            artworkImage = img
+        }
+        
+        // 2. Try inspecting all metadata format items for APIC / covr / raw picture data
+        if artworkImage == nil {
+            for format in formats {
+                for item in asset.metadata(forFormat: format) {
+                    let keyStr = (item.commonKey?.rawValue ?? "") + (item.identifier?.rawValue ?? "") + (item.key?.description ?? "")
+                    if keyStr.contains("APIC") || keyStr.contains("covr") || keyStr.contains("artwork") || keyStr.contains("PIC") {
+                        if let data = item.value as? Data, let img = NSImage(data: data) {
+                            artworkImage = img
+                            break
+                        }
+                    } else if artworkImage == nil, let data = item.value as? Data, data.count > 1024, let img = NSImage(data: data) {
+                        artworkImage = img
+                    }
+                }
+                if artworkImage != nil { break }
+            }
+        }
+        
+        // 3. Local Folder Cover Art Fallback (cover.jpg, folder.jpg, album.jpg, etc.)
+        if artworkImage == nil {
+            let folderURL = url.deletingLastPathComponent()
+            let candidates = ["cover.jpg", "cover.png", "folder.jpg", "folder.png", "album.jpg", "album.png", "art.jpg", "art.png", "front.jpg", "front.png"]
+            for candidate in candidates {
+                let candidateURL = folderURL.appendingPathComponent(candidate)
+                if FileManager.default.fileExists(atPath: candidateURL.path), let img = NSImage(contentsOf: candidateURL) {
+                    artworkImage = img
+                    break
                 }
             }
         }
@@ -909,6 +942,8 @@ struct ModernButton: View {
 struct ArtworkView: View {
     let artwork: NSImage?
     var size: CGFloat = 160
+    var isPlaying: Bool = false
+    var accentColor: Color = .white
     
     var body: some View {
         Group {
@@ -929,9 +964,11 @@ struct ArtworkView: View {
         .cornerRadius(10)
         .overlay(
             RoundedRectangle(cornerRadius: 10)
-                .stroke(UniformDesign.borderSubtle, lineWidth: 1)
+                .stroke(isPlaying ? accentColor.opacity(0.4) : UniformDesign.borderSubtle, lineWidth: 1)
         )
-        .shadow(color: Color.black.opacity(0.35), radius: 10, x: 0, y: 5)
+        .shadow(color: isPlaying ? accentColor.opacity(0.35) : Color.black.opacity(0.35), radius: isPlaying ? 14 : 8, x: 0, y: 5)
+        .scaleEffect(isPlaying ? 1.02 : 1.0)
+        .animation(.easeInOut(duration: 0.3), value: isPlaying)
     }
 }
 
@@ -1540,7 +1577,11 @@ struct ContentView: View {
                             // Navigation List
                             VStack(alignment: .leading, spacing: 4) {
                                 ForEach(NavigationItem.allCases) { item in
-                                    Button(action: { engine.selectedNav = item }) {
+                                    Button(action: {
+                                        withAnimation(.easeInOut(duration: 0.2)) {
+                                            engine.selectedNav = item
+                                        }
+                                    }) {
                                         HStack(spacing: 12) {
                                             Image(systemName: item.iconName)
                                                 .font(.system(size: 15, weight: .medium))
@@ -1689,7 +1730,7 @@ struct ContentView: View {
                                                     HStack(alignment: .top, spacing: 28) {
                                                         // Artwork and Track Info
                                                         VStack(alignment: .leading, spacing: 14) {
-                                                            ArtworkView(artwork: track.artwork, size: 160)
+                                                            ArtworkView(artwork: track.artwork, size: 160, isPlaying: engine.isPlaying, accentColor: engine.currentAccent.color)
                                                             
                                                             HStack {
                                                                 VStack(alignment: .leading, spacing: 4) {
