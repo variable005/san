@@ -14,13 +14,17 @@
 - **100% Offline and Private**: Zero network dependencies, zero tracking, zero telemetry, zero login. All metadata parsing and audio processing take place strictly on local hardware.
 - **Apple Silicon Native**: Compiled directly to `arm64` machine code for M-series Mac processors.
 
-### Dynamic Themes and Appearance Modes
+### Dynamic Themes, Appearance & Player Animations
 - **🎨 Dynamic Album Artwork Theme Extraction**: Samples vibrant dominant accent colors directly from playing album cover art (`NSBitmapImageRep` pixel analysis) and dynamically morphs visualizer bars, sliders, and glowing shadows in real time.
+- **✨ Player Animation Options**: Choose your preferred motion style and artwork presentation in Settings:
+  - **Fluid Spring**: Smooth bouncy fluid spring transitions.
+  - **Vinyl Record Spin**: Artwork presents as an authentic rotating vinyl disc with center spindle hole, grooves, and 60fps spin animation.
+  - **Gentle Ease**: Soft, elegant ease-in-out transitions.
+  - **Snappy Fast**: Ultra-snappy, linear instant response.
 - **Appearance Modes (Settings)**:
   - **Dark Mode**: Standard matte dark aesthetic (`#141417`).
   - **Pitch Black Mode**: Pure black OLED mode (`#000000`) for battery savings and high contrast.
   - **Light Mode**: High-contrast, clean minimalist light theme (`#F6F6F8`).
-- **Dynamic Theme Toggle**: Turn dynamic color extraction ON or OFF in Settings with fallback accent selection (*Minimalist White*, *Emerald*, *Sapphire*, *Crimson*, *Amber*).
 
 ### Menu Bar Popover HUD & Visualizer
 - **🎯 macOS Menu Bar Live HUD**: Click the **San** status bar icon in your Mac's Menu Bar to reveal a popup HUD popover with:
@@ -28,6 +32,14 @@
   - Live spectrum visualizer frequency bars.
   - Play/Pause, Next, Previous transport control buttons.
   - Quick "Open San" button to bring the main window to front.
+
+### Audiophile Equalizer and Hardware Controls
+- **🎛️ Redesigned Graphic Equalizer (EQ)**: Hardware-style vertical fader controls with center `0dB` midpoint markers, exact `+12dB` to `-12dB` gain meters, 1-click **Reset EQ** button, and active frequency fader fills.
+- **EQ Presets**: *Flat*, *Bass Boost*, *Treble Boost*, *Vocal*, *Electronic*.
+- **Hi-Res Audio Info Badge**: Displays real-time audio specifications (sample rate, bit depth, format, bitrate e.g., `FLAC • 96.0kHz • 1411 kbps`).
+- **Variable Playback Speed**: 0.5x, 0.75x, 1.0x, 1.25x, 1.5x, and 2.0x playback rate selector.
+- **Stereo Balance (Pan Control)**: Fine-tuned Left/Right channel audio balance slider.
+- **Synced Real-Time Lyrics**: Automatically loads `.lrc` timestamped lyrics files and highlights active singing lines in real-time.
 
 ### Up Next Play Queue and Album Grid
 - **📜 Up Next Play Queue**: Right-click or tap any track to select **Play Next** or **Add to Queue**. Queued songs play with highest priority.
@@ -43,13 +55,6 @@
   - `Cmd + M`: Toggle Mini-Player mode
 - **Mac Media Keys and Hotkeys**: Full hardware play/pause, next track, and previous track media key support on Apple keyboards (`MPRemoteCommandCenter`).
 
-### Audiophile and Audio Controls
-- **Hi-Res Audio Info Badge**: Displays real-time audio specifications (sample rate, bit depth, format, bitrate e.g., `FLAC • 96.0kHz • 1411 kbps`).
-- **Graphic Equalizer (EQ)**: 5-band frequency control (60Hz, 230Hz, 910Hz, 3.6kHz, 14kHz) with presets (*Flat*, *Bass Boost*, *Treble Boost*, *Vocal*, *Electronic*).
-- **Variable Playback Speed**: 0.5x, 0.75x, 1.0x, 1.25x, 1.5x, and 2.0x playback rate selector.
-- **Stereo Balance (Pan Control)**: Fine-tuned Left/Right channel audio balance slider.
-- **Synced Real-Time Lyrics**: Automatically loads `.lrc` timestamped lyrics files and highlights active singing lines in real-time.
-
 ### Playback, Library, and Storage
 - **Folder Mode (Select Folder to Play)**: Select any directory (`~/Music`, external drives, or custom folders) to browse and play audio files strictly within that folder structure.
 - **Sleep Timer**: Auto-stop playback countdown timer (15m, 30m, 45m, 60m, or end of track).
@@ -57,7 +62,7 @@
 - **Track Inspector**: View detailed offline file metadata (file size, channel count, sample rate, bit depth, format, exact path).
 - **Favorites System**: One-click heart button to star tracks and filter dedicated favorite playlists.
 - **Drag and Drop Import**: Drag audio files or folders from Finder directly into the application window.
-- **Persistent Storage**: Saves imported track paths to `~/Library/Application Support/San/library.json` so playlists, last folder path, theme settings, and appearance mode persist across restarts.
+- **Persistent Storage**: Saves imported track paths to `~/Library/Application Support/San/library.json` so playlists, last folder path, theme settings, appearance mode, and animation options persist across restarts.
 
 ---
 

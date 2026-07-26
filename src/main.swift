@@ -117,6 +117,24 @@ struct UserPlaylist: Identifiable, Codable, Equatable {
     var trackPaths: [String]
 }
 
+enum PlayerAnimationOption: String, CaseIterable, Identifiable, Codable {
+    case smoothSpring = "Fluid Spring"
+    case vinylSpin = "Vinyl Record Spin"
+    case gentleEase = "Gentle Ease"
+    case snappyLinear = "Snappy Fast"
+    
+    var id: String { self.rawValue }
+    
+    var animation: Animation {
+        switch self {
+        case .smoothSpring: return .spring(response: 0.38, dampingFraction: 0.72)
+        case .vinylSpin: return .interactiveSpring(response: 0.45, dampingFraction: 0.65)
+        case .gentleEase: return .easeInOut(duration: 0.4)
+        case .snappyLinear: return .linear(duration: 0.15)
+        }
+    }
+}
+
 struct SavedLibraryData: Codable {
     var filePaths: [String]
     var favoritePaths: [String]?
@@ -124,6 +142,7 @@ struct SavedLibraryData: Codable {
     var accentTheme: AccentTheme?
     var appearanceMode: AppearanceMode?
     var useDynamicArtworkTheme: Bool?
+    var playerAnimation: PlayerAnimationOption?
     var userPlaylists: [UserPlaylist]?
     var lastFolderURL: String?
 }
@@ -196,6 +215,7 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var dynamicAccentColor: Color? = nil
     @Published var appearanceMode: AppearanceMode = .dark
     @Published var useDynamicArtworkTheme: Bool = true
+    @Published var playerAnimation: PlayerAnimationOption = .smoothSpring
     
     // Folder Mode State
     @Published var selectedFolderURL: URL? = nil
@@ -907,6 +927,7 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
             accentTheme: currentAccent,
             appearanceMode: appearanceMode,
             useDynamicArtworkTheme: useDynamicArtworkTheme,
+            playerAnimation: playerAnimation,
             userPlaylists: userPlaylists,
             lastFolderURL: selectedFolderURL?.path
         )
@@ -933,6 +954,9 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
             }
             if let dyn = savedData.useDynamicArtworkTheme {
                 self.useDynamicArtworkTheme = dyn
+            }
+            if let anim = savedData.playerAnimation {
+                self.playerAnimation = anim
             }
             if let favs = savedData.favoritePaths {
                 self.favoritePaths = Set(favs)
@@ -1162,31 +1186,82 @@ struct ArtworkView: View {
     var size: CGFloat = 160
     var isPlaying: Bool = false
     var accentColor: Color = .white
+    var animationOption: PlayerAnimationOption = .smoothSpring
     
     var body: some View {
         Group {
-            if let art = artwork {
-                Image(nsImage: art)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-            } else {
+            if animationOption == .vinylSpin {
                 ZStack {
-                    Color(red: 0.18, green: 0.18, blue: 0.20)
-                    Image(systemName: "music.note")
-                        .font(.system(size: size * 0.35, weight: .light))
-                        .foregroundColor(.white.opacity(0.4))
+                    // Outer Black Vinyl Disc
+                    Circle()
+                        .fill(Color(red: 0.08, green: 0.08, blue: 0.09))
+                        .frame(width: size, height: size)
+                        .overlay(
+                            Circle()
+                                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                        )
+                        .shadow(color: isPlaying ? accentColor.opacity(0.4) : Color.black.opacity(0.4), radius: isPlaying ? 14 : 8, x: 0, y: 5)
+                    
+                    // Vinyl Grooves
+                    ForEach([0.85, 0.7, 0.55], id: \.self) { ratio in
+                        Circle()
+                            .stroke(Color.white.opacity(0.04), lineWidth: 1)
+                            .frame(width: size * ratio, height: size * ratio)
+                    }
+                    
+                    // Center Album Cover
+                    Group {
+                        if let art = artwork {
+                            Image(nsImage: art)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                        } else {
+                            ZStack {
+                                accentColor.opacity(0.3)
+                                Image(systemName: "music.note")
+                                    .font(.system(size: size * 0.15, weight: .light))
+                                    .foregroundColor(.white.opacity(0.6))
+                            }
+                        }
+                    }
+                    .frame(width: size * 0.45, height: size * 0.45)
+                    .clipShape(Circle())
+                    .overlay(Circle().stroke(accentColor.opacity(0.5), lineWidth: 1.5))
+                    
+                    // Center Record Spindle Hole
+                    Circle()
+                        .fill(Color.black)
+                        .frame(width: size * 0.08, height: size * 0.08)
+                        .overlay(Circle().stroke(Color.white.opacity(0.3), lineWidth: 1))
                 }
+                .rotationEffect(.degrees(isPlaying ? 360 : 0))
+                .animation(isPlaying ? .linear(duration: 8).repeatForever(autoreverses: false) : .default, value: isPlaying)
+            } else {
+                Group {
+                    if let art = artwork {
+                        Image(nsImage: art)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    } else {
+                        ZStack {
+                            Color(red: 0.18, green: 0.18, blue: 0.20)
+                            Image(systemName: "music.note")
+                                .font(.system(size: size * 0.35, weight: .light))
+                                .foregroundColor(.white.opacity(0.4))
+                        }
+                    }
+                }
+                .frame(width: size, height: size)
+                .cornerRadius(10)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(isPlaying ? accentColor.opacity(0.4) : Color.white.opacity(0.1), lineWidth: 1)
+                )
+                .shadow(color: isPlaying ? accentColor.opacity(0.35) : Color.black.opacity(0.35), radius: isPlaying ? 14 : 8, x: 0, y: 5)
             }
         }
-        .frame(width: size, height: size)
-        .cornerRadius(10)
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(isPlaying ? accentColor.opacity(0.4) : Color.white.opacity(0.1), lineWidth: 1)
-        )
-        .shadow(color: isPlaying ? accentColor.opacity(0.35) : Color.black.opacity(0.35), radius: isPlaying ? 14 : 8, x: 0, y: 5)
-        .scaleEffect(isPlaying ? 1.02 : 1.0)
-        .animation(.easeInOut(duration: 0.3), value: isPlaying)
+        .scaleEffect(isPlaying ? 1.03 : 1.0)
+        .animation(animationOption.animation, value: isPlaying)
     }
 }
 
@@ -1535,6 +1610,72 @@ struct MiniPlayerView: View {
     }
 }
 
+// MARK: - Custom Equalizer Vertical Fader Component
+
+struct CustomVerticalFader: View {
+    @Binding var gain: Float // -12 to +12
+    let accentColor: Color
+    let mode: AppearanceMode
+    let onCommit: () -> Void
+    
+    var body: some View {
+        GeometryReader { geo in
+            let height = geo.size.height
+            let normalized = CGFloat((gain + 12) / 24) // 0.0 to 1.0
+            let thumbY = height * (1.0 - normalized)
+            let midY = height * 0.5
+            
+            ZStack(alignment: .top) {
+                // Background Track
+                Capsule()
+                    .fill(Color.white.opacity(0.1))
+                    .frame(width: 6, height: height)
+                
+                // 0dB Center Marker Line
+                Rectangle()
+                    .fill(Color.white.opacity(0.3))
+                    .frame(width: 14, height: 1.5)
+                    .offset(y: midY)
+                
+                // Active Fill Bar from Midpoint (0dB)
+                let fillHeight = abs(thumbY - midY)
+                let fillTop = min(thumbY, midY)
+                
+                Capsule()
+                    .fill(accentColor)
+                    .frame(width: 6, height: fillHeight)
+                    .offset(y: fillTop)
+                
+                // Draggable Handle Pill
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.white)
+                    .frame(width: 28, height: 14)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(accentColor, lineWidth: 1.5)
+                    )
+                    .shadow(color: accentColor.opacity(0.4), radius: 4, x: 0, y: 2)
+                    .offset(y: max(0, min(height - 14, thumbY - 7)))
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { gesture in
+                        let clampedY = max(0, min(height, gesture.location.y))
+                        let percent = 1.0 - (clampedY / height)
+                        let newGain = Float(percent * 24.0 - 12.0)
+                        self.gain = max(-12, min(12, newGain))
+                    }
+                    .onEnded { _ in
+                        onCommit()
+                    }
+            )
+        }
+        .frame(width: 36, height: 170)
+    }
+}
+
 // MARK: - Equalizer View Component
 
 struct EqualizerView: View {
@@ -1543,9 +1684,29 @@ struct EqualizerView: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("Graphic Equalizer & Audio Controls")
-                .font(.system(size: 18, weight: .bold))
-                .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
+            HStack {
+                Text("Graphic Equalizer & Audio Controls")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
+                
+                Spacer()
+                
+                Button(action: {
+                    engine.applyEQPreset(.flat)
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.system(size: 11))
+                        Text("Reset EQ")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Capsule().fill(UniformDesign.hoverHighlight(mode: engine.appearanceMode)))
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
             
             // Audio Controls (Speed & Pan)
             ModernCard(cornerRadius: 14, mode: engine.appearanceMode) {
@@ -1611,33 +1772,31 @@ struct EqualizerView: View {
                 }
             }
             
-            // EQ Band Sliders
+            // EQ Band Vertical Faders
             ModernCard(cornerRadius: 14, mode: engine.appearanceMode) {
-                HStack(spacing: 36) {
+                HStack(spacing: 40) {
                     ForEach(0..<5, id: \.self) { index in
-                        VStack(spacing: 14) {
-                            Text(String(format: "+%.0fdB", engine.eqGains[index]))
-                                .font(.system(size: 11, design: .monospaced))
-                                .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
+                        VStack(spacing: 12) {
+                            Text(String(format: "%+.1fdB", engine.eqGains[index]))
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .foregroundColor(engine.eqGains[index] != 0 ? engine.activeAccentColor : UniformDesign.textMuted(mode: engine.appearanceMode))
                             
-                            Slider(value: Binding(
-                                get: { Double(engine.eqGains[index]) },
-                                set: {
-                                    engine.eqGains[index] = Float($0)
-                                    engine.saveLibrary()
-                                }
-                            ), in: -12...12)
-                            .accentColor(engine.activeAccentColor)
-                            .rotationEffect(.degrees(-90))
-                            .frame(width: 140, height: 40)
+                            CustomVerticalFader(
+                                gain: $engine.eqGains[index],
+                                accentColor: engine.activeAccentColor,
+                                mode: engine.appearanceMode
+                            ) {
+                                engine.saveLibrary()
+                            }
                             
                             Text(bandLabels[index])
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                         }
                     }
                 }
-                .padding(32)
+                .padding(.vertical, 24)
+                .padding(.horizontal, 32)
                 .frame(maxWidth: .infinity)
             }
         }
@@ -2027,6 +2186,45 @@ struct SettingsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             
+            // Player Animation Options Section
+            ModernCard(cornerRadius: 14, mode: engine.appearanceMode) {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Player Animation Options")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
+                    
+                    Text("Choose your preferred motion effect and artwork presentation:")
+                        .font(.system(size: 12))
+                        .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
+                    
+                    HStack(spacing: 12) {
+                        ForEach(PlayerAnimationOption.allCases) { option in
+                            Button(action: {
+                                withAnimation(option.animation) {
+                                    engine.playerAnimation = option
+                                    engine.saveLibrary()
+                                }
+                            }) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: option == .vinylSpin ? "record.circle.fill" : (option == .smoothSpring ? "sparkles" : (option == .gentleEase ? "wave.3.right" : "bolt.fill")))
+                                    Text(option.rawValue)
+                                }
+                                .font(.system(size: 12, weight: engine.playerAnimation == option ? .bold : .medium))
+                                .foregroundColor(engine.playerAnimation == option ? .black : UniformDesign.textPrimary(mode: engine.appearanceMode))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(
+                                    Capsule().fill(engine.playerAnimation == option ? engine.activeAccentColor : UniformDesign.hoverHighlight(mode: engine.appearanceMode))
+                                )
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                    }
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            
             // Accent Color Picker Section
             ModernCard(cornerRadius: 14, mode: engine.appearanceMode) {
                 VStack(alignment: .leading, spacing: 16) {
@@ -2372,7 +2570,7 @@ struct ContentView: View {
                                                     HStack(alignment: .top, spacing: 28) {
                                                         // Artwork and Track Info
                                                         VStack(alignment: .leading, spacing: 14) {
-                                                            ArtworkView(artwork: track.artwork, size: 160, isPlaying: engine.isPlaying, accentColor: engine.activeAccentColor)
+                                                            ArtworkView(artwork: track.artwork, size: 160, isPlaying: engine.isPlaying, accentColor: engine.activeAccentColor, animationOption: engine.playerAnimation)
                                                             
                                                             HStack {
                                                                 VStack(alignment: .leading, spacing: 4) {
@@ -2654,7 +2852,7 @@ struct ContentView: View {
                                 HStack(spacing: 20) {
                                     // Current Song Info & Hi-Res Badge Preview (Click to open Now Playing with animation)
                                     HStack(spacing: 10) {
-                                        ArtworkView(artwork: engine.currentTrack?.artwork, size: 36, isPlaying: engine.isPlaying, accentColor: engine.activeAccentColor)
+                                        ArtworkView(artwork: engine.currentTrack?.artwork, size: 36, isPlaying: engine.isPlaying, accentColor: engine.activeAccentColor, animationOption: engine.playerAnimation)
                                         
                                         VStack(alignment: .leading, spacing: 2) {
                                             Text(engine.currentTrack?.title ?? "No Song Playing")
