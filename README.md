@@ -15,20 +15,27 @@
 
 ## Features
 
-- **Ultra Lightweight (~360 KB)**: Built directly with native macOS frameworks (`SwiftUI`, `AppKit`, `AVFoundation`, `MediaPlayer`). Launches instantly in under 0.1 seconds with low memory footprint.
-- **Hi-Res Audio Info Badge**: Displays real-time audio file specifications (sample rate, bit depth, format, bitrate e.g., `FLAC • 96.0kHz • 1411 kbps`).
-- **Custom Accent Color Themes**: Choose from 5 minimalist accent highlight themes (*Minimalist White*, *Emerald*, *Sapphire*, *Crimson*, *Amber*) via the Settings tab.
-- **Compact Mini-Player Mode**: Toggle a stay-on-top floating desktop widget.
-- **Graphic Equalizer (EQ)**: 5-band frequency controls (60Hz, 230Hz, 910Hz, 3.6kHz, 14kHz) with presets (*Flat*, *Bass Boost*, *Treble Boost*, *Vocal*, *Electronic*).
-- **Favorites System**: One-click heart toggle button to star tracks and filter dedicated favorite playlists.
-- **Synced Real-Time Lyrics**: Automatically loads and parses `.lrc` timestamped lyrics files and highlights active singing lines in real-time.
-- **Mac Media Keys and Hotkeys (`MPRemoteCommandCenter`)**: Hardware play/pause, next track, and previous track media key support on Mac keyboards.
-- **macOS Control Center and Lock Screen Sync (`MPNowPlayingInfoCenter`)**: Live track title, artist name, album artwork, and progress bar synchronization in macOS Control Center and Lock Screen.
-- **Drag and Drop File and Folder Import**: Drag `.mp3`, `.wav`, `.flac`, `.m4a`, or entire music folders directly from Finder into the application window to play instantly.
-- **Persistent Library Storage**: Saves imported track paths to `~/Library/Application Support/San/library.json` so playlists and accent settings persist across application restarts.
-- **Modern Dark Minimalist UI**: Matte dark background (`#141417`), 1px borders, high-contrast monochrome transport controls, and square artwork stage.
-- **Real-Time Audio Visualizer**: Animated 16-band spectrum equalizer reflecting live audio output.
-- **100% Offline and Private**: Zero network dependencies, zero tracking, zero login. Operates completely offline on local hardware.
+### Performance and Architecture
+- **Ultra Lightweight (~360 KB)**: Built natively with `SwiftUI`, `AppKit`, `AVFoundation`, and `MediaPlayer`. Launches instantly with a low memory footprint.
+- **100% Offline and Private**: Zero network dependencies, zero tracking, zero login. Runs completely on local hardware.
+- **Apple Silicon Native**: Compiled to `arm64` machine code for M-series Mac processors.
+
+### Audiophile and Sound Control
+- **Hi-Res Audio Info Badge**: Displays real-time audio specifications (sample rate, bit depth, format, bitrate e.g., `FLAC • 96.0kHz • 1411 kbps`).
+- **Graphic Equalizer (EQ)**: 5-band frequency control (60Hz, 230Hz, 910Hz, 3.6kHz, 14kHz) with presets (*Flat*, *Bass Boost*, *Treble Boost*, *Vocal*, *Electronic*).
+- **Synced Real-Time Lyrics**: Automatically loads `.lrc` timestamped lyrics files and highlights active singing lines in real-time.
+
+### Playback and Library
+- **Favorites System**: One-click heart button to star tracks and filter dedicated favorite playlists.
+- **Drag and Drop Import**: Drag `.mp3`, `.wav`, `.flac`, `.m4a`, or entire music folders from Finder directly into the application window.
+- **Persistent Storage**: Saves imported track paths to `~/Library/Application Support/San/library.json` so playlists and theme settings persist across restarts.
+
+### macOS Integration and Interface
+- **Mac Media Keys and Hotkeys**: Full hardware play/pause, next track, and previous track media key support on Apple keyboards (`MPRemoteCommandCenter`).
+- **macOS Control Center and Lock Screen Sync**: Live track title, artist name, artwork, and progress bar sync (`MPNowPlayingInfoCenter`).
+- **Compact Mini-Player Mode**: Press `Cmd + M` to toggle a stay-on-top floating desktop widget.
+- **Custom Accent Color Themes**: Select from 5 minimalist accent themes (*Minimalist White*, *Emerald*, *Sapphire*, *Crimson*, *Amber*) in the Settings tab.
+- **Modern Dark Minimalist UI**: Matte dark background (`#141417`), 1px borders, high-contrast monochrome controls, and real-time audio visualizer.
 
 ---
 
