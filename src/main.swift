@@ -3938,12 +3938,13 @@ struct SidebarNavItemButton: View {
                     Image(systemName: item.iconName)
                         .font(.system(size: 15, weight: isSelected ? .bold : .medium))
                         .foregroundColor(isSelected ? engine.activeAccentColor : UniformDesign.textMuted(mode: engine.appearanceMode))
-                        .frame(width: 36, height: 36)
+                        .frame(width: 40, height: 40)
                         .background(
-                            RoundedRectangle(cornerRadius: 10)
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
                                 .fill(isSelected ? UniformDesign.activeHighlight(mode: engine.appearanceMode) : Color.clear)
                         )
                 }
+                .frame(maxWidth: .infinity, alignment: .center)
                 .help(item.rawValue)
             } else {
                 HStack(spacing: 12) {
@@ -4044,9 +4045,9 @@ struct ContentView: View {
                                             .font(.system(size: 14, weight: .light))
                                             .foregroundColor(engine.activeAccentColor)
                                     }
+                                    
+                                    Spacer(minLength: 0)
                                 }
-                                
-                                Spacer(minLength: 0)
                                 
                                 Button(action: {
                                     withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
@@ -4057,7 +4058,7 @@ struct ContentView: View {
                                     Image(systemName: engine.isSidebarCollapsed ? "sidebar.right" : "sidebar.left")
                                         .font(.system(size: 14, weight: .semibold))
                                         .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
-                                        .padding(6)
+                                        .frame(width: 32, height: 32)
                                         .background(
                                             Circle()
                                                 .fill(UniformDesign.hoverHighlight(mode: engine.appearanceMode))
@@ -4066,8 +4067,9 @@ struct ContentView: View {
                                 .buttonStyle(PlainButtonStyle())
                                 .help("Toggle Sidebar (Cmd+S)")
                             }
-                            .padding(.horizontal, engine.isSidebarCollapsed ? 12 : 16)
-                            .padding(.top, 24)
+                            .frame(maxWidth: .infinity, alignment: engine.isSidebarCollapsed ? .center : .leading)
+                            .padding(.horizontal, engine.isSidebarCollapsed ? 0 : 16)
+                            .padding(.top, engine.isSidebarCollapsed ? 14 : 20)
                             .padding(.bottom, 6)
                             
                             // Grouped Sidebar Sections
@@ -4101,7 +4103,7 @@ struct ContentView: View {
                                         SidebarNavItemButton(item: .settings, engine: engine)
                                     }
                                 }
-                                .padding(.horizontal, engine.isSidebarCollapsed ? 6 : 12)
+                                .padding(.horizontal, engine.isSidebarCollapsed ? 0 : 12)
                             }
                             
                             Spacer()
@@ -4109,10 +4111,10 @@ struct ContentView: View {
                             // Quick Action Buttons
                             VStack(spacing: 8) {
                                 Button(action: { engine.selectFolderToPlay() }) {
-                                    HStack(spacing: 8) {
+                                    HStack(spacing: engine.isSidebarCollapsed ? 0 : 8) {
                                         Image(systemName: "folder.fill")
-                                            .font(.system(size: 12, weight: .semibold))
-                                            .frame(width: 16)
+                                            .font(.system(size: 13, weight: .semibold))
+                                            .frame(width: 20, height: 20, alignment: .center)
                                         if !engine.isSidebarCollapsed {
                                             Text("Open Folder")
                                                 .font(.system(size: 12, weight: .semibold))
@@ -4121,12 +4123,12 @@ struct ContentView: View {
                                     }
                                     .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                                     .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 8)
+                                    .frame(height: 36)
                                     .background(
-                                        RoundedRectangle(cornerRadius: 8)
+                                        RoundedRectangle(cornerRadius: 10, style: .continuous)
                                             .fill(UniformDesign.hoverHighlight(mode: engine.appearanceMode))
                                             .overlay(
-                                                RoundedRectangle(cornerRadius: 8)
+                                                RoundedRectangle(cornerRadius: 10, style: .continuous)
                                                     .stroke(UniformDesign.borderSubtle(mode: engine.appearanceMode), lineWidth: 1)
                                             )
                                     )
@@ -4135,10 +4137,10 @@ struct ContentView: View {
                                 .help("Open Folder")
                                 
                                 Button(action: { engine.openFiles() }) {
-                                    HStack(spacing: 8) {
+                                    HStack(spacing: engine.isSidebarCollapsed ? 0 : 8) {
                                         Image(systemName: "plus.circle.fill")
-                                            .font(.system(size: 12, weight: .semibold))
-                                            .frame(width: 16)
+                                            .font(.system(size: 13, weight: .semibold))
+                                            .frame(width: 20, height: 20, alignment: .center)
                                         if !engine.isSidebarCollapsed {
                                             Text("Import Music")
                                                 .font(.system(size: 12, weight: .semibold))
@@ -4147,19 +4149,19 @@ struct ContentView: View {
                                     }
                                     .foregroundColor(.black)
                                     .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 8)
+                                    .frame(height: 36)
                                     .background(
-                                        RoundedRectangle(cornerRadius: 8)
+                                        RoundedRectangle(cornerRadius: 10, style: .continuous)
                                             .fill(engine.activeAccentColor)
                                     )
                                 }
                                 .buttonStyle(PlainButtonStyle())
                                 .help("Import Music")
                             }
-                            .padding(.horizontal, engine.isSidebarCollapsed ? 8 : 14)
-                            .padding(.bottom, 20)
+                            .padding(.horizontal, engine.isSidebarCollapsed ? 12 : 14)
+                            .padding(.bottom, 16)
                         }
-                        .frame(width: engine.isSidebarCollapsed ? 64 : engine.sidebarWidth)
+                        .frame(width: engine.isSidebarCollapsed ? 68 : engine.sidebarWidth)
                         .frame(maxHeight: .infinity)
                         .background(
                             ZStack {
@@ -4180,9 +4182,9 @@ struct ContentView: View {
                             RoundedRectangle(cornerRadius: 16, style: .continuous)
                                 .stroke(UniformDesign.borderSubtle(mode: engine.appearanceMode), lineWidth: 1)
                         )
-                        .padding(.leading, 8)
-                        .padding(.top, 8)
-                        .padding(.bottom, 8)
+                        .padding(.leading, 10)
+                        .padding(.top, 10)
+                        .padding(.bottom, 10)
                         
                         // Draggable Sidebar Resize Handle
                         Rectangle()
@@ -4871,7 +4873,28 @@ struct ContentView: View {
                                 .padding(.horizontal, 20)
                                 .padding(.bottom, 10)
                             }
-                            .background(UniformDesign.bgBottomBar(mode: engine.appearanceMode))
+                            .background(
+                                ZStack {
+                                    if engine.enableSidebarLiquidGlass || engine.enableSliceOfLifeTheme {
+                                        NSVisualEffectBlurView(
+                                            material: .hudWindow,
+                                            blendingMode: .withinWindow,
+                                            state: .active
+                                        )
+                                        (engine.appearanceMode == .light ? Color.white.opacity(0.08) : Color.black.opacity(0.12))
+                                    } else {
+                                        UniformDesign.bgBottomBar(mode: engine.appearanceMode)
+                                    }
+                                }
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .stroke(UniformDesign.borderSubtle(mode: engine.appearanceMode), lineWidth: 1)
+                            )
+                            .padding(.horizontal, 10)
+                            .padding(.bottom, 10)
+                            .padding(.top, 4)
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }

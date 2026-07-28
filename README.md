@@ -74,7 +74,10 @@ San (Japanese for Three / Harmony) provides a clean, modern interface for listen
 - **Scroll to Playing**: Instant jump button to highlight the active track in large libraries.
 
 ### Interface & Customization
-- **Slice of Life Anime Theme & Mascot**: Stylized anime mascot sitting and leaning sideways directly against the app title (`SAN 三`) in the sidebar header with cozy lo-fi dusk sky background wallpaper theme. Toggleable in Settings.
+- **Waifu3 App Logo Icon**: Official `waifu3` anime mascot app icon (`AppIcon.icns`) for macOS Dock, Finder, and installer bundle.
+- **Slice of Life Anime Theme**: Full-window lo-fi background artwork (`waifu2.png`) with dynamic radial accent glows and subtle floating music sparkles.
+- **Collapsible Glassmorphic Sidebar**: Translucent floating glass card (`NSVisualEffectView`) with 16pt rounded corners, crystal clear background pass-through, and `sidebar.left` collapse toggle button (Cmd+S).
+- **Floating Glass Player Bar**: Translucent glass player control card with symmetrical 10pt gap padding from sidebar.
 - **Resizable Sidebar**: Drag-to-resize sidebar width (160pt to 280pt) with persisted dimensions.
 - **Dynamic Album Artwork Color Extraction**: Samples dominant vibrant accent colors from playing album artwork in real time.
 - **Appearance Modes**: Dark Mode, Pitch Black Mode (OLED), and Light Mode.
