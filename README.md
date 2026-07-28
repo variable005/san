@@ -64,6 +64,8 @@ San (Japanese for Three / Harmony) provides a clean, modern interface for listen
 - **Stereo Balance Control**: Adjust left/right audio channel balance.
 
 ### Library & Smart Playlists
+- **Playlist Export (.m3u / .m3u8)**: Export any custom playlist, favorites, or smart collection to standard `#EXTM3U` and UTF-8 `#EXTM3U8` playlist files via native macOS save dialogs.
+- **USB Drive / DAP Direct Sync**: Copy playlists and underlying audio files directly to connected USB flash drives or Digital Audio Players (DAPs) with relative `.m3u8` playlist generation and real-time copy progress indicator.
 - **Smart Playlists**: Auto-generated dynamic views for Recently Added, Most Played (Top 25), and Recently Played tracks.
 - **Sortable Column Headers**: Clickable column headers to sort library by Title, Artist, Album, Genre, Play Count, or Duration.
 - **Genre & Release Year**: Metadata parsing and display across track rows and the Now Playing card.

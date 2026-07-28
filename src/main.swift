@@ -249,6 +249,44 @@ struct LyricLine: Identifiable, Equatable {
     let text: String
 }
 
+// MARK: - Playlist Exporter & USB/DAP Sync Engine
+
+class PlaylistSyncManager {
+    static let shared = PlaylistSyncManager()
+    
+    func generateM3UContent(tracks: [Track], isRelative: Bool = false) -> String {
+        var lines: [String] = ["#EXTM3U"]
+        for track in tracks {
+            let duration = Int(track.duration)
+            let titleLine = "#EXTINF:\(duration),\(track.artist) - \(track.title)"
+            lines.append(titleLine)
+            if isRelative {
+                lines.append(track.url.lastPathComponent)
+            } else {
+                lines.append(track.url.path)
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+    
+    func exportM3UFile(tracks: [Track], defaultName: String) {
+        guard !tracks.isEmpty else { return }
+        let savePanel = NSSavePanel()
+        savePanel.title = "Export M3U Playlist"
+        savePanel.prompt = "Export"
+        savePanel.nameFieldStringValue = "\(defaultName).m3u8"
+        savePanel.allowedContentTypes = [
+            UTType(filenameExtension: "m3u8") ?? .plainText,
+            UTType(filenameExtension: "m3u") ?? .plainText
+        ]
+        
+        if savePanel.runModal() == .OK, let destinationURL = savePanel.url {
+            let content = generateM3UContent(tracks: tracks, isRelative: false)
+            try? content.write(to: destinationURL, atomically: true, encoding: .utf8)
+        }
+    }
+}
+
 // MARK: - Audio Engine & App State Controller
 
 class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
@@ -285,6 +323,12 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
     // Up Next Play Queue
     @Published var playQueue: [Track] = []
     @Published var showQueueDrawer: Bool = false
+    
+    // USB / DAP Direct Sync State
+    @Published var isSyncingToUSB: Bool = false
+    @Published var syncProgress: Double = 0.0
+    @Published var syncStatusText: String = ""
+    @Published var showSyncDrawer: Bool = false
     
     // Theme & Appearance State
     @Published var currentAccent: AccentTheme = .white
@@ -819,6 +863,103 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
             userPlaylists[index].trackPaths.removeAll(where: { $0 == track.url.path })
             saveLibrary()
         }
+    }
+    
+    // MARK: - USB / DAP Direct Sync & Playlist Exporter
+    
+    func activePlaylistTitle() -> String {
+        if selectedNav == .playlists, let id = activePlaylistId, let pl = userPlaylists.first(where: { $0.id == id }) {
+            return pl.name
+        }
+        return selectedNav.rawValue
+    }
+    
+    func exportActivePlaylistM3U() {
+        let tracks = currentTrackList()
+        let name = activePlaylistTitle()
+        PlaylistSyncManager.shared.exportM3UFile(tracks: tracks, defaultName: name)
+    }
+    
+    func syncActivePlaylistToUSB() {
+        let tracks = currentTrackList()
+        guard !tracks.isEmpty else { return }
+        let name = activePlaylistTitle()
+        
+        let openPanel = NSOpenPanel()
+        openPanel.title = "Select USB Drive or DAP Destination Folder"
+        openPanel.prompt = "Sync Playlist Here"
+        openPanel.canChooseFiles = false
+        openPanel.canChooseDirectories = true
+        openPanel.allowsMultipleSelection = false
+        
+        if openPanel.runModal() == .OK, let targetURL = openPanel.url {
+            startUSBSync(tracks: tracks, playlistName: name, targetURL: targetURL)
+        }
+    }
+    
+    private func startUSBSync(tracks: [Track], playlistName: String, targetURL: URL) {
+        let safeName = playlistName.components(separatedBy: CharacterSet.alphanumerics.inverted).joined(separator: "_")
+        let destinationFolder = targetURL.appendingPathComponent(safeName.isEmpty ? "San_Playlist" : safeName, isDirectory: true)
+        
+        do {
+            try FileManager.default.createDirectory(at: destinationFolder, withIntermediateDirectories: true)
+        } catch {
+            print("Failed to create target USB directory: \(error.localizedDescription)")
+            return
+        }
+        
+        isSyncingToUSB = true
+        syncProgress = 0.0
+        syncStatusText = "Preparing USB Sync..."
+        showSyncDrawer = true
+        
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let total = tracks.count
+            var copiedCount = 0
+            var copiedTracks: [Track] = []
+            
+            for (index, track) in tracks.enumerated() {
+                guard self?.isSyncingToUSB == true else { break }
+                
+                let fileName = String(format: "%02d - %@", index + 1, track.url.lastPathComponent)
+                let destFileURL = destinationFolder.appendingPathComponent(fileName)
+                
+                DispatchQueue.main.async {
+                    self?.syncStatusText = "Copying (\(index + 1)/\(total)): \(track.title)"
+                    self?.syncProgress = Double(index) / Double(total)
+                }
+                
+                if FileManager.default.fileExists(atPath: destFileURL.path) {
+                    try? FileManager.default.removeItem(at: destFileURL)
+                }
+                
+                do {
+                    try FileManager.default.copyItem(at: track.url, to: destFileURL)
+                    copiedCount += 1
+                    copiedTracks.append(track)
+                } catch {
+                    print("Error copying track \(track.title): \(error.localizedDescription)")
+                }
+            }
+            
+            // Create relative .m3u8 playlist on the USB drive
+            if let manager = self {
+                let m3uContent = PlaylistSyncManager.shared.generateM3UContent(tracks: copiedTracks, isRelative: true)
+                let m3uPath = destinationFolder.appendingPathComponent("\(safeName).m3u8")
+                try? m3uContent.write(to: m3uPath, atomically: true, encoding: .utf8)
+            }
+            
+            DispatchQueue.main.async {
+                self?.syncProgress = 1.0
+                self?.syncStatusText = "Completed! Synced \(copiedCount) of \(total) tracks to USB/DAP."
+                self?.isSyncingToUSB = false
+            }
+        }
+    }
+    
+    func cancelUSBSync() {
+        isSyncingToUSB = false
+        showSyncDrawer = false
     }
     
     // MARK: - Sleep Timer Engine
@@ -2120,6 +2261,86 @@ struct StatusBarPopoverView: View {
         .padding(14)
         .frame(width: 280)
         .background(UniformDesign.bgCard(mode: engine.appearanceMode))
+    }
+}
+
+// MARK: - USB / DAP Sync Progress Modal Sheet
+
+struct USBSyncProgressSheet: View {
+    @ObservedObject var engine: AudioEngine
+    
+    var body: some View {
+        VStack(spacing: 20) {
+            HStack {
+                Image(systemName: "externaldrive.fill.badge.plus")
+                    .font(.system(size: 24))
+                    .foregroundColor(engine.activeAccentColor)
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("USB Drive / DAP Direct Sync")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
+                    
+                    Text("Copying audio files & creating relative .m3u8 playlist")
+                        .font(.system(size: 12))
+                        .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
+                }
+                
+                Spacer()
+            }
+            
+            VStack(alignment: .leading, spacing: 8) {
+                Text(engine.syncStatusText)
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
+                    .lineLimit(1)
+                
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(Color.white.opacity(0.12))
+                            .frame(height: 8)
+                        Capsule()
+                            .fill(engine.activeAccentColor)
+                            .frame(width: max(0, geo.size.width * CGFloat(engine.syncProgress)), height: 8)
+                    }
+                }
+                .frame(height: 8)
+            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(UniformDesign.bgCard(mode: engine.appearanceMode))
+            )
+            
+            HStack {
+                Spacer()
+                
+                if engine.isSyncingToUSB {
+                    Button("Cancel Sync") {
+                        engine.cancelUSBSync()
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .foregroundColor(.red)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(Color.red.opacity(0.15)))
+                } else {
+                    Button("Done") {
+                        engine.showSyncDrawer = false
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .foregroundColor(.black)
+                    .font(.system(size: 13, weight: .bold))
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(engine.activeAccentColor))
+                }
+            }
+        }
+        .padding(24)
+        .frame(width: 460)
+        .background(UniformDesign.bgMain(mode: engine.appearanceMode))
     }
 }
 
@@ -4084,6 +4305,53 @@ struct ContentView: View {
                                                     )
                                                     .padding(.horizontal, 24)
                                                 } else {
+                                                    // Header Title & Action Bar
+                                                    HStack {
+                                                        Text(engine.activePlaylistTitle())
+                                                            .font(.system(size: 16, weight: .bold))
+                                                            .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
+                                                        
+                                                        Spacer()
+                                                        
+                                                        if !filteredPlaylist.isEmpty {
+                                                            Button(action: { engine.exportActivePlaylistM3U() }) {
+                                                                HStack(spacing: 6) {
+                                                                    Image(systemName: "square.and.arrow.up")
+                                                                        .font(.system(size: 11, weight: .semibold))
+                                                                    Text("Export .m3u8")
+                                                                        .font(.system(size: 11, weight: .semibold))
+                                                                }
+                                                                .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
+                                                                .padding(.horizontal, 10)
+                                                                .padding(.vertical, 5)
+                                                                .background(
+                                                                    Capsule()
+                                                                        .fill(UniformDesign.hoverHighlight(mode: engine.appearanceMode))
+                                                                        .overlay(
+                                                                            Capsule().stroke(UniformDesign.borderSubtle(mode: engine.appearanceMode), lineWidth: 1)
+                                                                        )
+                                                                )
+                                                            }
+                                                            .buttonStyle(PlainButtonStyle())
+                                                            
+                                                            Button(action: { engine.syncActivePlaylistToUSB() }) {
+                                                                HStack(spacing: 6) {
+                                                                    Image(systemName: "externaldrive.fill.badge.plus")
+                                                                        .font(.system(size: 11, weight: .semibold))
+                                                                    Text("Sync to USB / DAP")
+                                                                        .font(.system(size: 11, weight: .semibold))
+                                                                }
+                                                                .foregroundColor(.black)
+                                                                .padding(.horizontal, 12)
+                                                                .padding(.vertical, 5)
+                                                                .background(Capsule().fill(engine.activeAccentColor))
+                                                            }
+                                                            .buttonStyle(PlainButtonStyle())
+                                                        }
+                                                    }
+                                                    .padding(.horizontal, 24)
+                                                    .padding(.bottom, 8)
+                                                    
                                                     // Column Headers Bar
                                                     HStack(spacing: 14) {
                                                         Text("#")
@@ -4410,6 +4678,9 @@ struct ContentView: View {
                 }
                 .sheet(isPresented: $engine.showQueueDrawer) {
                     PlayQueueDrawerSheet(engine: engine)
+                }
+                .sheet(isPresented: $engine.showSyncDrawer) {
+                    USBSyncProgressSheet(engine: engine)
                 }
                 .onAppear {
                     // Shared AudioEngine reference for AppDelegate Status Bar HUD Popover
