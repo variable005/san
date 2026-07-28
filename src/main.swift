@@ -221,6 +221,9 @@ struct SavedLibraryData: Codable {
     var windowFrame: [CGFloat]?
     var sidebarWidth: CGFloat?
     var crossfadeDuration: CrossfadeDuration?
+    var enableSliceOfLifeTheme: Bool?
+    var enableSidebarLiquidGlass: Bool?
+    var isSidebarCollapsed: Bool?
 }
 
 enum EQPreset: String, CaseIterable, Identifiable {
@@ -337,6 +340,9 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var useDynamicArtworkTheme: Bool = true
     @Published var playerAnimation: PlayerAnimationOption = .smoothSpring
     @Published var visualizerBarStyle: VisualizerBarStyle = .verticalBars
+    @Published var enableSliceOfLifeTheme: Bool = false
+    @Published var enableSidebarLiquidGlass: Bool = true
+    @Published var isSidebarCollapsed: Bool = false
     
     // Folder Mode State
     @Published var selectedFolderURL: URL? = nil
@@ -1526,7 +1532,10 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
             userPlaylists: userPlaylists,
             lastFolderURL: selectedFolderURL?.path,
             sidebarWidth: sidebarWidth,
-            crossfadeDuration: crossfadeDuration
+            crossfadeDuration: crossfadeDuration,
+            enableSliceOfLifeTheme: enableSliceOfLifeTheme,
+            enableSidebarLiquidGlass: enableSidebarLiquidGlass,
+            isSidebarCollapsed: isSidebarCollapsed
         )
         do {
             let json = try JSONEncoder().encode(savedData)
@@ -1552,6 +1561,15 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
             }
             if let dyn = savedData.useDynamicArtworkTheme {
                 self.useDynamicArtworkTheme = dyn
+            }
+            if let sol = savedData.enableSliceOfLifeTheme {
+                self.enableSliceOfLifeTheme = sol
+            }
+            if let sideGlass = savedData.enableSidebarLiquidGlass {
+                self.enableSidebarLiquidGlass = sideGlass
+            }
+            if let col = savedData.isSidebarCollapsed {
+                self.isSidebarCollapsed = col
             }
             if let anim = savedData.playerAnimation {
                 self.playerAnimation = anim
@@ -1675,6 +1693,28 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
 }
 
+// MARK: - AppKit Visual Effect Blur View (Liquid Glass)
+
+struct NSVisualEffectBlurView: NSViewRepresentable {
+    var material: NSVisualEffectView.Material = .hudWindow
+    var blendingMode: NSVisualEffectView.BlendingMode = .withinWindow
+    var state: NSVisualEffectView.State = .active
+    
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = material
+        view.blendingMode = blendingMode
+        view.state = state
+        return view
+    }
+    
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+        nsView.material = material
+        nsView.blendingMode = blendingMode
+        nsView.state = state
+    }
+}
+
 // MARK: - Dynamic Appearance UI System
 
 struct UniformDesign {
@@ -1768,6 +1808,82 @@ struct ModernCard<Content: View>: View {
                             .stroke(UniformDesign.borderSubtle(mode: mode), lineWidth: 1)
                     )
             )
+    }
+}
+
+// MARK: - Slice of Life Anime Mascot Header & Background Theme
+
+func loadWaifuAsset(_ name: String) -> NSImage? {
+    let localPath = FileManager.default.currentDirectoryPath + "/assets/\(name).png"
+    if let img = NSImage(contentsOfFile: localPath) {
+        return img
+    }
+    if let bundlePath = Bundle.main.path(forResource: name, ofType: "png", inDirectory: "assets"),
+       let img = NSImage(contentsOfFile: bundlePath) {
+        return img
+    }
+    if let bundlePath = Bundle.main.path(forResource: name, ofType: "png"),
+       let img = NSImage(contentsOfFile: bundlePath) {
+        return img
+    }
+    return nil
+}
+
+struct SliceOfLifeMascotHeaderView: View {
+    @ObservedObject var engine: AudioEngine
+    
+    var body: some View {
+        HStack(spacing: 8) {
+            Text("SAN")
+                .font(.system(size: 20, weight: .bold, design: .default))
+                .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
+                .tracking(3.5)
+            
+            Text("三")
+                .font(.system(size: 14, weight: .light))
+                .foregroundColor(engine.activeAccentColor)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 24)
+        .padding(.bottom, 6)
+    }
+}
+
+struct SliceOfLifeBackgroundView: View {
+    @ObservedObject var engine: AudioEngine
+    
+    var bgImage: NSImage? {
+        loadWaifuAsset("waifu2")
+    }
+    
+    var body: some View {
+        ZStack {
+            // Soft Cozy Base Background
+            UniformDesign.bgMain(mode: engine.appearanceMode)
+                .ignoresSafeArea()
+            
+            // Waifu2 Wide Shot Anime Background Wallpaper
+            if let nsImg = bgImage {
+                Image(nsImage: nsImg)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .opacity(engine.appearanceMode == .light ? 0.28 : 0.42)
+                    .ignoresSafeArea()
+            }
+            
+            // Dynamic Accent Ambient Glow Overlay
+            RadialGradient(
+                colors: [
+                    engine.activeAccentColor.opacity(0.18),
+                    Color.purple.opacity(0.10),
+                    Color.clear
+                ],
+                center: .topTrailing,
+                startRadius: 50,
+                endRadius: 600
+            )
+            .ignoresSafeArea()
+        }
     }
 }
 
@@ -3442,6 +3558,44 @@ struct SettingsView: View {
                     }
                     .toggleStyle(SwitchToggleStyle(tint: engine.activeAccentColor))
                     .padding(.top, 6)
+                    
+                    Toggle(isOn: Binding(
+                        get: { engine.enableSliceOfLifeTheme },
+                        set: {
+                            engine.enableSliceOfLifeTheme = $0
+                            engine.saveLibrary()
+                        }
+                    )) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Slice of Life Anime Theme & Mascot")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
+                            Text("Render cute slice of life anime mascot leaning against title with cozy lo-fi background theme.")
+                                .font(.system(size: 11))
+                                .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
+                        }
+                    }
+                    .toggleStyle(SwitchToggleStyle(tint: engine.activeAccentColor))
+                    .padding(.top, 6)
+                    
+                    Toggle(isOn: Binding(
+                        get: { engine.enableSidebarLiquidGlass },
+                        set: {
+                            engine.enableSidebarLiquidGlass = $0
+                            engine.saveLibrary()
+                        }
+                    )) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Liquid Glass Sidebar Backdrop")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
+                            Text("Apply translucent optical frosted glass material behind the sidebar navigation list.")
+                                .font(.system(size: 11))
+                                .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
+                        }
+                    }
+                    .toggleStyle(SwitchToggleStyle(tint: engine.activeAccentColor))
+                    .padding(.top, 6)
                 }
                 .padding(20)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -3751,12 +3905,14 @@ struct SidebarSectionView<Content: View>: View {
     @ViewBuilder var content: Content
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
-                .padding(.horizontal, 10)
-                .padding(.bottom, 2)
+        VStack(alignment: engine.isSidebarCollapsed ? .center : .leading, spacing: 4) {
+            if !engine.isSidebarCollapsed {
+                Text(title)
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
+                    .padding(.horizontal, 10)
+                    .padding(.bottom, 2)
+            }
             
             content
         }
@@ -3777,30 +3933,45 @@ struct SidebarNavItemButton: View {
                 engine.selectedNav = item
             }
         }) {
-            HStack(spacing: 12) {
-                Image(systemName: item.iconName)
-                    .font(.system(size: 14, weight: isSelected ? .bold : .medium))
-                    .foregroundColor(isSelected ? engine.activeAccentColor : UniformDesign.textMuted(mode: engine.appearanceMode))
-                    .frame(width: 20, alignment: .center)
-                
-                Text(item.rawValue)
-                    .font(.system(size: 13, weight: isSelected ? .bold : .medium))
-                    .foregroundColor(isSelected ? UniformDesign.textPrimary(mode: engine.appearanceMode) : UniformDesign.textSecondary(mode: engine.appearanceMode))
-                
-                Spacer()
-                
-                if isSelected {
-                    Capsule()
-                        .fill(engine.activeAccentColor)
-                        .frame(width: 3, height: 14)
+            if engine.isSidebarCollapsed {
+                ZStack {
+                    Image(systemName: item.iconName)
+                        .font(.system(size: 15, weight: isSelected ? .bold : .medium))
+                        .foregroundColor(isSelected ? engine.activeAccentColor : UniformDesign.textMuted(mode: engine.appearanceMode))
+                        .frame(width: 36, height: 36)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(isSelected ? UniformDesign.activeHighlight(mode: engine.appearanceMode) : Color.clear)
+                        )
                 }
+                .help(item.rawValue)
+            } else {
+                HStack(spacing: 12) {
+                    Image(systemName: item.iconName)
+                        .font(.system(size: 14, weight: isSelected ? .bold : .medium))
+                        .foregroundColor(isSelected ? engine.activeAccentColor : UniformDesign.textMuted(mode: engine.appearanceMode))
+                        .frame(width: 20, alignment: .center)
+                    
+                    Text(item.rawValue)
+                        .font(.system(size: 13, weight: isSelected ? .bold : .medium))
+                        .foregroundColor(isSelected ? UniformDesign.textPrimary(mode: engine.appearanceMode) : UniformDesign.textSecondary(mode: engine.appearanceMode))
+                        .lineLimit(1)
+                    
+                    Spacer()
+                    
+                    if isSelected {
+                        Capsule()
+                            .fill(engine.activeAccentColor)
+                            .frame(width: 3, height: 14)
+                    }
+                }
+                .padding(.vertical, 7)
+                .padding(.horizontal, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(isSelected ? UniformDesign.activeHighlight(mode: engine.appearanceMode) : Color.clear)
+                )
             }
-            .padding(.vertical, 7)
-            .padding(.horizontal, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(isSelected ? UniformDesign.activeHighlight(mode: engine.appearanceMode) : Color.clear)
-            )
         }
         .buttonStyle(PlainButtonStyle())
     }
@@ -3849,32 +4020,59 @@ struct ContentView: View {
                 MiniPlayerView(engine: engine)
             } else {
                 ZStack {
-                    // Modern Solid Dark Background
-                    UniformDesign.bgMain(mode: engine.appearanceMode)
-                        .ignoresSafeArea()
+                    if engine.enableSliceOfLifeTheme {
+                        SliceOfLifeBackgroundView(engine: engine)
+                    } else {
+                        UniformDesign.bgMain(mode: engine.appearanceMode)
+                            .ignoresSafeArea()
+                    }
                     
                     // Main Window Content Layout
                     HStack(spacing: 0) {
                         // MARK: Sidebar Navigation
                         VStack(alignment: .leading, spacing: 20) {
-                            // App Brand Header
-                            HStack(spacing: 8) {
-                                Text("SAN")
-                                    .font(.system(size: 20, weight: .bold, design: .default))
-                                    .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
-                                    .tracking(3.5)
+                            // App Brand Header with Collapse Toggle Button
+                            HStack(alignment: .center) {
+                                if !engine.isSidebarCollapsed {
+                                    HStack(spacing: 8) {
+                                        Text("SAN")
+                                            .font(.system(size: 20, weight: .bold, design: .default))
+                                            .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
+                                            .tracking(3.5)
+                                        
+                                        Text("三")
+                                            .font(.system(size: 14, weight: .light))
+                                            .foregroundColor(engine.activeAccentColor)
+                                    }
+                                }
                                 
-                                Text("三")
-                                    .font(.system(size: 14, weight: .light))
-                                    .foregroundColor(engine.activeAccentColor)
+                                Spacer(minLength: 0)
+                                
+                                Button(action: {
+                                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                                        engine.isSidebarCollapsed.toggle()
+                                        engine.saveLibrary()
+                                    }
+                                }) {
+                                    Image(systemName: engine.isSidebarCollapsed ? "sidebar.right" : "sidebar.left")
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
+                                        .padding(6)
+                                        .background(
+                                            Circle()
+                                                .fill(UniformDesign.hoverHighlight(mode: engine.appearanceMode))
+                                        )
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                                .help("Toggle Sidebar (Cmd+S)")
                             }
-                            .padding(.horizontal, 16)
+                            .padding(.horizontal, engine.isSidebarCollapsed ? 12 : 16)
                             .padding(.top, 24)
                             .padding(.bottom, 6)
                             
                             // Grouped Sidebar Sections
                             ScrollView(.vertical, showsIndicators: false) {
-                                VStack(alignment: .leading, spacing: 20) {
+                                VStack(alignment: engine.isSidebarCollapsed ? .center : .leading, spacing: 20) {
                                     // Section 1: LIBRARY
                                     SidebarSectionView(title: "LIBRARY", engine: engine) {
                                         SidebarNavItemButton(item: .library, engine: engine)
@@ -3903,7 +4101,7 @@ struct ContentView: View {
                                         SidebarNavItemButton(item: .settings, engine: engine)
                                     }
                                 }
-                                .padding(.horizontal, 12)
+                                .padding(.horizontal, engine.isSidebarCollapsed ? 6 : 12)
                             }
                             
                             Spacer()
@@ -3915,8 +4113,11 @@ struct ContentView: View {
                                         Image(systemName: "folder.fill")
                                             .font(.system(size: 12, weight: .semibold))
                                             .frame(width: 16)
-                                        Text("Open Folder")
-                                            .font(.system(size: 12, weight: .semibold))
+                                        if !engine.isSidebarCollapsed {
+                                            Text("Open Folder")
+                                                .font(.system(size: 12, weight: .semibold))
+                                                .lineLimit(1)
+                                        }
                                     }
                                     .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
                                     .frame(maxWidth: .infinity)
@@ -3931,14 +4132,18 @@ struct ContentView: View {
                                     )
                                 }
                                 .buttonStyle(PlainButtonStyle())
+                                .help("Open Folder")
                                 
                                 Button(action: { engine.openFiles() }) {
                                     HStack(spacing: 8) {
                                         Image(systemName: "plus.circle.fill")
                                             .font(.system(size: 12, weight: .semibold))
                                             .frame(width: 16)
-                                        Text("Import Music")
-                                            .font(.system(size: 12, weight: .semibold))
+                                        if !engine.isSidebarCollapsed {
+                                            Text("Import Music")
+                                                .font(.system(size: 12, weight: .semibold))
+                                                .lineLimit(1)
+                                        }
                                     }
                                     .foregroundColor(.black)
                                     .frame(maxWidth: .infinity)
@@ -3949,13 +4154,35 @@ struct ContentView: View {
                                     )
                                 }
                                 .buttonStyle(PlainButtonStyle())
+                                .help("Import Music")
                             }
-                            .padding(.horizontal, 14)
+                            .padding(.horizontal, engine.isSidebarCollapsed ? 8 : 14)
                             .padding(.bottom, 20)
                         }
-                        .frame(width: engine.sidebarWidth)
+                        .frame(width: engine.isSidebarCollapsed ? 64 : engine.sidebarWidth)
                         .frame(maxHeight: .infinity)
-                        .background(UniformDesign.bgSidebar(mode: engine.appearanceMode))
+                        .background(
+                            ZStack {
+                                if engine.enableSidebarLiquidGlass || engine.enableSliceOfLifeTheme {
+                                    NSVisualEffectBlurView(
+                                        material: .hudWindow,
+                                        blendingMode: .withinWindow,
+                                        state: .active
+                                    )
+                                    (engine.appearanceMode == .light ? Color.white.opacity(0.08) : Color.black.opacity(0.12))
+                                } else {
+                                    UniformDesign.bgSidebar(mode: engine.appearanceMode)
+                                }
+                            }
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(UniformDesign.borderSubtle(mode: engine.appearanceMode), lineWidth: 1)
+                        )
+                        .padding(.leading, 8)
+                        .padding(.top, 8)
+                        .padding(.bottom, 8)
                         
                         // Draggable Sidebar Resize Handle
                         Rectangle()

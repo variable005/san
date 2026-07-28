@@ -74,6 +74,7 @@ San (Japanese for Three / Harmony) provides a clean, modern interface for listen
 - **Scroll to Playing**: Instant jump button to highlight the active track in large libraries.
 
 ### Interface & Customization
+- **Slice of Life Anime Theme & Mascot**: Stylized anime mascot sitting and leaning sideways directly against the app title (`SAN 三`) in the sidebar header with cozy lo-fi dusk sky background wallpaper theme. Toggleable in Settings.
 - **Resizable Sidebar**: Drag-to-resize sidebar width (160pt to 280pt) with persisted dimensions.
 - **Dynamic Album Artwork Color Extraction**: Samples dominant vibrant accent colors from playing album artwork in real time.
 - **Appearance Modes**: Dark Mode, Pitch Black Mode (OLED), and Light Mode.

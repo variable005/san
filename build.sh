@@ -16,6 +16,9 @@ cp "$PROJECT_DIR/build/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
 if [ -f "$PROJECT_DIR/build/AppIcon.icns" ]; then
     cp "$PROJECT_DIR/build/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
 fi
+if [ -d "$PROJECT_DIR/assets" ]; then
+    cp -R "$PROJECT_DIR/assets" "$APP_BUNDLE/Contents/Resources/assets"
+fi
 
 echo "Compiling Swift source code for San..."
 SDK_PATH=$(xcrun --show-sdk-path 2>/dev/null || echo "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk")
