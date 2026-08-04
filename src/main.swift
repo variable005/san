@@ -70,6 +70,7 @@ struct TrackStats: Codable {
     var playCount: Int = 0
     var lastPlayedDate: Date? = nil
     var dateAdded: Date = Date()
+    var tags: [String]?
 }
 
 struct AlbumGroup: Identifiable, Equatable {
@@ -154,6 +155,7 @@ struct UserPlaylist: Identifiable, Codable, Equatable {
     var id = UUID()
     var name: String
     var trackPaths: [String]
+    var folderName: String?
 }
 
 struct ArtistGroup: Identifiable, Equatable {
@@ -217,6 +219,7 @@ struct SavedLibraryData: Codable {
     var playerAnimation: PlayerAnimationOption?
     var visualizerBarStyle: VisualizerBarStyle?
     var userPlaylists: [UserPlaylist]?
+    var playlistFolders: [String]?
     var lastFolderURL: String?
     var windowFrame: [CGFloat]?
     var sidebarWidth: CGFloat?
@@ -299,7 +302,7 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var duration: TimeInterval = 0
     @Published var volume: Float = 0.8 {
         didSet {
-            audioPlayer?.volume = volume
+            audioPlayer?.volume = volume * sleepFadeVolumeFactor
         }
     }
     @Published var playbackRate: Float = 1.0 {
@@ -351,6 +354,9 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
     // Playlists & Sorting State
     @Published var userPlaylists: [UserPlaylist] = []
     @Published var activePlaylistId: UUID? = nil
+    @Published var playlistFolders: [String] = []
+    @Published var expandedFolders: Set<String> = []
+    @Published var newTagText: String = ""
     @Published var currentSort: SortOption = .title
     @Published var newPlaylistName: String = ""
     @Published var showNewPlaylistPrompt: Bool = false
@@ -360,6 +366,7 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
     // Sleep Timer State
     @Published var sleepTimerMinutes: Int = 0 // 0 = off, 15, 30, 45, 60, -1 = end of track
     @Published var sleepTimerRemainingSeconds: Int = 0
+    @Published var sleepFadeVolumeFactor: Float = 1.0
     private var sleepTimer: Timer?
     
     // Equalizer State (5 Bands: 60Hz, 230Hz, 910Hz, 3.6kHz, 14kHz)
@@ -375,6 +382,7 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
     // Navigation & UI State
     @Published var selectedNav: NavigationItem = .nowPlaying
     @Published var searchText: String = ""
+    @Published var activeFilterTag: String? = nil
     @Published var hoveredButtonId: String? = nil
     @Published var hoveredTrackId: UUID? = nil
     @Published var isDropTargeted: Bool = false
@@ -682,7 +690,7 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
         do {
             audioPlayer = try AVAudioPlayer(contentsOf: track.url)
             audioPlayer?.delegate = self
-            audioPlayer?.volume = crossfadeDuration.seconds > 0 ? 0 : volume
+            audioPlayer?.volume = (crossfadeDuration.seconds > 0 ? 0 : volume) * sleepFadeVolumeFactor
             audioPlayer?.enableRate = true
             audioPlayer?.rate = playbackRate
             audioPlayer?.pan = pan
@@ -697,7 +705,9 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 let volumeStep = volume / Float(steps)
                 for i in 1...steps {
                     DispatchQueue.main.asyncAfter(deadline: .now() + stepInterval * Double(i)) { [weak self] in
-                        self?.audioPlayer?.volume = min(self?.volume ?? 0.8, volumeStep * Float(i))
+                        guard let self = self else { return }
+                        let targetVol = self.volume * self.sleepFadeVolumeFactor
+                        self.audioPlayer?.volume = min(targetVol, volumeStep * Float(i) * self.sleepFadeVolumeFactor)
                     }
                 }
             }
@@ -790,22 +800,33 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
         }
     }
     
-    private func currentTrackList() -> [Track] {
+    func currentTrackList() -> [Track] {
+        var base: [Track] = []
         if selectedNav == .folders && !folderTracks.isEmpty {
-            return folderTracks
+            base = folderTracks
         } else if selectedNav == .favorites {
-            return playlist.filter { isFavorite(track: $0) }
+            base = playlist.filter { isFavorite(track: $0) }
         } else if selectedNav == .playlists, let id = activePlaylistId, let pl = userPlaylists.first(where: { $0.id == id }) {
             let paths = Set(pl.trackPaths)
-            return playlist.filter { paths.contains($0.url.path) }
+            base = playlist.filter { paths.contains($0.url.path) }
         } else if selectedNav == .recentlyAdded {
-            return recentlyAddedTracks
+            base = recentlyAddedTracks
         } else if selectedNav == .mostPlayed {
-            return mostPlayedTracks
+            base = mostPlayedTracks
         } else if selectedNav == .recentlyPlayed {
-            return recentlyPlayedTracks
+            base = recentlyPlayedTracks
+        } else {
+            base = playlist
         }
-        return playlist
+        
+        if let filterTag = activeFilterTag {
+            base = base.filter { track in
+                let tags = getTags(for: track)
+                return tags.contains(filterTag)
+            }
+        }
+        
+        return base
     }
     
     // MARK: - Folder Mode & Select Folder Action
@@ -868,6 +889,187 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
         if let index = userPlaylists.firstIndex(where: { $0.id == playlistId }) {
             userPlaylists[index].trackPaths.removeAll(where: { $0 == track.url.path })
             saveLibrary()
+        }
+    }
+    
+    func toggleFolderExpanded(_ folder: String) {
+        if expandedFolders.contains(folder) {
+            expandedFolders.remove(folder)
+        } else {
+            expandedFolders.insert(folder)
+        }
+    }
+    
+    func movePlaylist(_ playlist: UserPlaylist, toFolder folder: String?) {
+        if let index = userPlaylists.firstIndex(where: { $0.id == playlist.id }) {
+            userPlaylists[index].folderName = folder
+            saveLibrary()
+        }
+    }
+    
+    func renamePlaylist(_ playlist: UserPlaylist, newName: String) {
+        let clean = newName.trimmingCharacters(in: .whitespaces)
+        guard !clean.isEmpty else { return }
+        if let index = userPlaylists.firstIndex(where: { $0.id == playlist.id }) {
+            userPlaylists[index].name = clean
+            saveLibrary()
+        }
+    }
+    
+    func createFolder(name: String) {
+        let clean = name.trimmingCharacters(in: .whitespaces)
+        guard !clean.isEmpty else { return }
+        if !playlistFolders.contains(clean) {
+            playlistFolders.append(clean)
+            playlistFolders.sort()
+            saveLibrary()
+        }
+    }
+    
+    func renameFolder(_ oldName: String, newName: String) {
+        let clean = newName.trimmingCharacters(in: .whitespaces)
+        guard !clean.isEmpty, clean != oldName else { return }
+        
+        // Update folder list
+        if let index = playlistFolders.firstIndex(of: oldName) {
+            playlistFolders[index] = clean
+            playlistFolders.sort()
+        }
+        
+        // Update all playlists in this folder
+        for i in 0..<userPlaylists.count {
+            if userPlaylists[i].folderName == oldName {
+                userPlaylists[i].folderName = clean
+            }
+        }
+        
+        // Update expansion set
+        if expandedFolders.contains(oldName) {
+            expandedFolders.remove(oldName)
+            expandedFolders.insert(clean)
+        }
+        
+        saveLibrary()
+    }
+    
+    func deleteFolder(_ folder: String, keepPlaylists: Bool) {
+        playlistFolders.removeAll(where: { $0 == folder })
+        expandedFolders.remove(folder)
+        
+        if keepPlaylists {
+            for i in 0..<userPlaylists.count {
+                if userPlaylists[i].folderName == folder {
+                    userPlaylists[i].folderName = nil
+                }
+            }
+        } else {
+            // Delete all playlists inside
+            let playlistsToDelete = userPlaylists.filter { $0.folderName == folder }
+            userPlaylists.removeAll(where: { $0.folderName == folder })
+            for pl in playlistsToDelete {
+                if activePlaylistId == pl.id {
+                    activePlaylistId = userPlaylists.first?.id
+                }
+            }
+        }
+        
+        saveLibrary()
+    }
+    
+    // Prompts
+    func promptCreatePlaylist() {
+        let alert = NSAlert()
+        alert.messageText = "Create New Playlist"
+        alert.informativeText = "Enter a name for the new playlist:"
+        alert.addButton(withTitle: "Create")
+        alert.addButton(withTitle: "Cancel")
+        
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        input.placeholderString = "Playlist Name"
+        alert.accessoryView = input
+        
+        if alert.runModal() == .alertFirstButtonReturn {
+            let name = input.stringValue.trimmingCharacters(in: .whitespaces)
+            if !name.isEmpty {
+                self.createPlaylist(name: name)
+            }
+        }
+    }
+    
+    func promptCreateFolder() {
+        let alert = NSAlert()
+        alert.messageText = "Create New Folder"
+        alert.informativeText = "Enter a name for the new playlist folder:"
+        alert.addButton(withTitle: "Create")
+        alert.addButton(withTitle: "Cancel")
+        
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        input.placeholderString = "Folder Name"
+        alert.accessoryView = input
+        
+        if alert.runModal() == .alertFirstButtonReturn {
+            let name = input.stringValue.trimmingCharacters(in: .whitespaces)
+            if !name.isEmpty {
+                self.createFolder(name: name)
+            }
+        }
+    }
+    
+    func promptRenamePlaylist(_ playlist: UserPlaylist) {
+        let alert = NSAlert()
+        alert.messageText = "Rename Playlist"
+        alert.informativeText = "Enter a new name for '\(playlist.name)':"
+        alert.addButton(withTitle: "Rename")
+        alert.addButton(withTitle: "Cancel")
+        
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        input.stringValue = playlist.name
+        alert.accessoryView = input
+        
+        if alert.runModal() == .alertFirstButtonReturn {
+            let name = input.stringValue.trimmingCharacters(in: .whitespaces)
+            if !name.isEmpty {
+                self.renamePlaylist(playlist, newName: name)
+            }
+        }
+    }
+    
+    func promptRenameFolder(_ oldName: String) {
+        let alert = NSAlert()
+        alert.messageText = "Rename Folder"
+        alert.informativeText = "Enter a new name for '\(oldName)':"
+        alert.addButton(withTitle: "Rename")
+        alert.addButton(withTitle: "Cancel")
+        
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        input.stringValue = oldName
+        alert.accessoryView = input
+        
+        if alert.runModal() == .alertFirstButtonReturn {
+            let name = input.stringValue.trimmingCharacters(in: .whitespaces)
+            if !name.isEmpty {
+                self.renameFolder(oldName, newName: name)
+            }
+        }
+    }
+    
+    func promptMovePlaylistToNewFolder(_ playlist: UserPlaylist) {
+        let alert = NSAlert()
+        alert.messageText = "Move to New Folder"
+        alert.informativeText = "Enter a name for the new folder:"
+        alert.addButton(withTitle: "Move")
+        alert.addButton(withTitle: "Cancel")
+        
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        input.placeholderString = "Folder Name"
+        alert.accessoryView = input
+        
+        if alert.runModal() == .alertFirstButtonReturn {
+            let name = input.stringValue.trimmingCharacters(in: .whitespaces)
+            if !name.isEmpty {
+                self.createFolder(name: name)
+                self.movePlaylist(playlist, toFolder: name)
+            }
         }
     }
     
@@ -975,12 +1177,27 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
         sleepTimer?.invalidate()
         sleepTimer = nil
         
+        if minutes <= 0 {
+            sleepFadeVolumeFactor = 1.0
+            audioPlayer?.volume = volume
+        }
+        
         if minutes > 0 {
             sleepTimerRemainingSeconds = minutes * 60
+            sleepFadeVolumeFactor = 1.0
             sleepTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
                 guard let self = self else { return }
                 if self.sleepTimerRemainingSeconds > 0 {
                     self.sleepTimerRemainingSeconds -= 1
+                    
+                    // Linear fade out in the last 60 seconds
+                    if self.sleepTimerRemainingSeconds <= 60 {
+                        let factor = Float(self.sleepTimerRemainingSeconds) / 60.0
+                        self.sleepFadeVolumeFactor = factor
+                        self.audioPlayer?.volume = self.volume * factor
+                    } else {
+                        self.sleepFadeVolumeFactor = 1.0
+                    }
                 } else {
                     self.togglePlay()
                     self.setSleepTimer(minutes: 0)
@@ -1003,6 +1220,56 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
             favoritePaths.insert(path)
         }
         saveLibrary()
+    }
+    
+    // MARK: - Tagging System
+    
+    func getTags(for track: Track) -> [String] {
+        return trackStats[track.url.path]?.tags ?? []
+    }
+    
+    func addTag(_ tag: String, to track: Track) {
+        let clean = tag.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return }
+        
+        let path = track.url.path
+        if trackStats[path] == nil {
+            trackStats[path] = TrackStats(playCount: 0, lastPlayedDate: nil, dateAdded: Date(), tags: [])
+        }
+        
+        if trackStats[path]?.tags == nil {
+            trackStats[path]?.tags = []
+        }
+        
+        if !(trackStats[path]?.tags?.contains(clean) ?? false) {
+            trackStats[path]?.tags?.append(clean)
+            saveTrackStats()
+            objectWillChange.send() // Force UI updates
+        }
+    }
+    
+    func removeTag(_ tag: String, from track: Track) {
+        let path = track.url.path
+        if trackStats[path]?.tags != nil {
+            trackStats[path]?.tags?.removeAll(where: { $0 == tag })
+            saveTrackStats()
+            objectWillChange.send() // Force UI updates
+        }
+    }
+    
+    func allTags() -> [String] {
+        var tagsSet = Set<String>()
+        for stats in trackStats.values {
+            if let tags = stats.tags {
+                for t in tags {
+                    let trimmed = t.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty {
+                        tagsSet.insert(trimmed)
+                    }
+                }
+            }
+        }
+        return Array(tagsSet).sorted()
     }
     
     // MARK: - Remove Tracks from Library
@@ -1530,6 +1797,7 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
             playerAnimation: playerAnimation,
             visualizerBarStyle: visualizerBarStyle,
             userPlaylists: userPlaylists,
+            playlistFolders: playlistFolders,
             lastFolderURL: selectedFolderURL?.path,
             sidebarWidth: sidebarWidth,
             crossfadeDuration: crossfadeDuration,
@@ -1585,6 +1853,12 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
             }
             if let pls = savedData.userPlaylists {
                 self.userPlaylists = pls
+            }
+            if let folders = savedData.playlistFolders {
+                self.playlistFolders = folders
+            } else {
+                let unique = Array(Set(self.userPlaylists.compactMap { $0.folderName })).sorted()
+                self.playlistFolders = unique
             }
             if let lastFolder = savedData.lastFolderURL {
                 let folderURL = URL(fileURLWithPath: lastFolder)
@@ -2642,6 +2916,84 @@ struct TrackInspectorView: View {
                 .font(.system(size: 12))
                 .padding(16)
             }
+            
+            // Tag Editor Section
+            VStack(alignment: .leading, spacing: 8) {
+                Text("TAGS")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
+                
+                if engine.getTags(for: track).isEmpty {
+                    Text("No tags assigned yet. Type a tag below (e.g. #chill).")
+                        .font(.system(size: 11))
+                        .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
+                        .padding(.vertical, 2)
+                } else {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(engine.getTags(for: track), id: \.self) { tag in
+                                HStack(spacing: 4) {
+                                    Text(tag)
+                                        .font(.system(size: 11, weight: .semibold))
+                                    Button(action: { engine.removeTag(tag, from: track) }) {
+                                        Image(systemName: "xmark")
+                                            .font(.system(size: 9, weight: .bold))
+                                    }
+                                    .buttonStyle(PlainButtonStyle())
+                                    .foregroundColor(engine.activeAccentColor)
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Capsule().fill(engine.activeAccentColor.opacity(0.12)))
+                                .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
+                            }
+                        }
+                    }
+                }
+                
+                HStack(spacing: 8) {
+                    TextField("Add #tag...", text: $engine.newTagText, onCommit: {
+                        let clean = engine.newTagText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !clean.isEmpty {
+                            let formatted = clean.hasPrefix("#") ? clean : "#\(clean)"
+                            engine.addTag(formatted, to: track)
+                            engine.newTagText = ""
+                        }
+                    })
+                    .textFieldStyle(PlainTextFieldStyle())
+                    .padding(.vertical, 5)
+                    .padding(.horizontal, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(UniformDesign.hoverHighlight(mode: engine.appearanceMode))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .stroke(UniformDesign.borderSubtle(mode: engine.appearanceMode), lineWidth: 1)
+                            )
+                    )
+                    .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
+                    .font(.system(size: 12))
+                    .frame(width: 160)
+                    
+                    Button(action: {
+                        let clean = engine.newTagText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !clean.isEmpty {
+                            let formatted = clean.hasPrefix("#") ? clean : "#\(clean)"
+                            engine.addTag(formatted, to: track)
+                            engine.newTagText = ""
+                        }
+                    }) {
+                        Text("Add")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(.black)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 5)
+                            .background(Capsule().fill(engine.activeAccentColor))
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+            }
+            .padding(.top, 4)
         }
         .padding(24)
         .frame(width: 480)
@@ -3978,16 +4330,178 @@ struct SidebarNavItemButton: View {
     }
 }
 
+struct PlaylistSidebarRow: View {
+    let playlist: UserPlaylist
+    @ObservedObject var engine: AudioEngine
+    
+    var isSelected: Bool {
+        engine.selectedNav == .playlists && engine.activePlaylistId == playlist.id
+    }
+    
+    var body: some View {
+        Button(action: {
+            engine.selectedNav = .playlists
+            engine.activePlaylistId = playlist.id
+        }) {
+            HStack(spacing: 8) {
+                Image(systemName: "music.note.list")
+                    .font(.system(size: 11))
+                    .foregroundColor(isSelected ? engine.activeAccentColor : UniformDesign.textMuted(mode: engine.appearanceMode))
+                    .frame(width: 16, alignment: .center)
+                
+                Text(playlist.name)
+                    .font(.system(size: 13, weight: isSelected ? .bold : .medium))
+                    .foregroundColor(isSelected ? engine.activeAccentColor : UniformDesign.textPrimary(mode: engine.appearanceMode))
+                    .lineLimit(1)
+                
+                Spacer()
+                
+                Text("\(playlist.trackPaths.count)")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
+            }
+            .padding(.vertical, 5)
+            .padding(.horizontal, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(isSelected ? UniformDesign.activeHighlight(mode: engine.appearanceMode) : Color.clear)
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+        .contextMenu {
+            Button("Rename...") {
+                engine.promptRenamePlaylist(playlist)
+            }
+            Button("Delete Playlist") {
+                engine.deletePlaylist(id: playlist.id)
+            }
+            
+            Divider()
+            
+            Menu("Move to Folder") {
+                Button("None (Root)") {
+                    engine.movePlaylist(playlist, toFolder: nil)
+                }
+                if !engine.playlistFolders.isEmpty {
+                    Divider()
+                    ForEach(engine.playlistFolders, id: \.self) { folder in
+                        Button(folder) {
+                            engine.movePlaylist(playlist, toFolder: folder)
+                        }
+                    }
+                }
+                Divider()
+                Button("New Folder...") {
+                    engine.promptMovePlaylistToNewFolder(playlist)
+                }
+            }
+        }
+    }
+}
+
+struct SidebarPlaylistsTree: View {
+    @ObservedObject var engine: AudioEngine
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            // General header / action row for playlists section
+            HStack {
+                Text("Playlists")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
+                Spacer()
+                
+                Button(action: { engine.promptCreatePlaylist() }) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
+                }
+                .buttonStyle(PlainButtonStyle())
+                .help("Create Playlist")
+                
+                Button(action: { engine.promptCreateFolder() }) {
+                    Image(systemName: "folder.badge.plus")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
+                }
+                .buttonStyle(PlainButtonStyle())
+                .help("Create Folder")
+            }
+            .padding(.horizontal, 8)
+            .padding(.bottom, 2)
+            
+            // 1. Root Level Playlists
+            let rootPlaylists = engine.userPlaylists.filter { $0.folderName == nil }
+            ForEach(rootPlaylists) { pl in
+                PlaylistSidebarRow(playlist: pl, engine: engine)
+            }
+            
+            // 2. Folders
+            ForEach(engine.playlistFolders, id: \.self) { folder in
+                let folderPlaylists = engine.userPlaylists.filter { $0.folderName == folder }
+                let isExpanded = engine.expandedFolders.contains(folder)
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
+                            .frame(width: 10)
+                        
+                        Image(systemName: "folder.fill")
+                            .font(.system(size: 11))
+                            .foregroundColor(engine.activeAccentColor)
+                        
+                        Text(folder)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
+                        
+                        Spacer()
+                        
+                        Text("\(folderPlaylists.count)")
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundColor(UniformDesign.textMuted(mode: engine.appearanceMode))
+                    }
+                    .padding(.vertical, 5)
+                    .padding(.horizontal, 8)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        withAnimation(.easeOut(duration: 0.15)) {
+                            engine.toggleFolderExpanded(folder)
+                        }
+                    }
+                    .contextMenu {
+                        Button("Rename Folder...") {
+                            engine.promptRenameFolder(folder)
+                        }
+                        Button("Delete Folder (Keep Playlists)") {
+                            engine.deleteFolder(folder, keepPlaylists: true)
+                        }
+                        Button("Delete Folder and Playlists") {
+                            engine.deleteFolder(folder, keepPlaylists: false)
+                        }
+                    }
+                    
+                    if isExpanded {
+                        ForEach(folderPlaylists) { pl in
+                            PlaylistSidebarRow(playlist: pl, engine: engine)
+                                .padding(.leading, 14)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
 // MARK: - Main Application View
 
 struct ContentView: View {
     @StateObject private var engine = AudioEngine()
     
     var filteredPlaylist: [Track] {
-        var baseList = engine.playlist
-        if engine.selectedNav == .favorites {
-            baseList = baseList.filter { engine.isFavorite(track: $0) }
-        }
+        var baseList = engine.currentTrackList()
         
         if !engine.searchText.isEmpty {
             baseList = baseList.filter {
@@ -4087,7 +4601,11 @@ struct ContentView: View {
                                     // Section 2: COLLECTIONS
                                     SidebarSectionView(title: "COLLECTIONS", engine: engine) {
                                         SidebarNavItemButton(item: .favorites, engine: engine)
-                                        SidebarNavItemButton(item: .playlists, engine: engine)
+                                        if engine.isSidebarCollapsed {
+                                            SidebarNavItemButton(item: .playlists, engine: engine)
+                                        } else {
+                                            SidebarPlaylistsTree(engine: engine)
+                                        }
                                     }
                                     
                                     // Section 3: SMART PLAYLISTS
@@ -4267,6 +4785,60 @@ struct ContentView: View {
                             .padding(.horizontal, 24)
                             .padding(.top, 18)
                             .padding(.bottom, 16)
+                            
+                            let showTagFilterBar = engine.selectedNav != .equalizer &&
+                                                   engine.selectedNav != .settings &&
+                                                   engine.selectedNav != .folders &&
+                                                   engine.selectedNav != .albums &&
+                                                   engine.selectedNav != .artists
+                            
+                            if showTagFilterBar, !engine.allTags().isEmpty {
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack(spacing: 8) {
+                                        Button(action: {
+                                            withAnimation(.easeOut(duration: 0.15)) {
+                                                engine.activeFilterTag = nil
+                                            }
+                                        }) {
+                                            Text("All")
+                                                .font(.system(size: 11, weight: .semibold))
+                                                .padding(.horizontal, 10)
+                                                .padding(.vertical, 5)
+                                                .background(
+                                                    Capsule()
+                                                        .fill(engine.activeFilterTag == nil ? engine.activeAccentColor : UniformDesign.hoverHighlight(mode: engine.appearanceMode))
+                                                )
+                                                .foregroundColor(engine.activeFilterTag == nil ? .black : UniformDesign.textPrimary(mode: engine.appearanceMode))
+                                        }
+                                        .buttonStyle(PlainButtonStyle())
+                                        
+                                        ForEach(engine.allTags(), id: \.self) { tag in
+                                            Button(action: {
+                                                withAnimation(.easeOut(duration: 0.15)) {
+                                                    if engine.activeFilterTag == tag {
+                                                        engine.activeFilterTag = nil
+                                                    } else {
+                                                        engine.activeFilterTag = tag
+                                                    }
+                                                }
+                                            }) {
+                                                Text(tag)
+                                                    .font(.system(size: 11, weight: .semibold))
+                                                    .padding(.horizontal, 10)
+                                                    .padding(.vertical, 5)
+                                                    .background(
+                                                        Capsule()
+                                                            .fill(engine.activeFilterTag == tag ? engine.activeAccentColor : UniformDesign.hoverHighlight(mode: engine.appearanceMode))
+                                                    )
+                                                    .foregroundColor(engine.activeFilterTag == tag ? .black : UniformDesign.textPrimary(mode: engine.appearanceMode))
+                                            }
+                                            .buttonStyle(PlainButtonStyle())
+                                        }
+                                    }
+                                    .padding(.horizontal, 24)
+                                    .padding(.bottom, 12)
+                                }
+                            }
                             
                             // Main Scroll Area
                             ScrollView {
@@ -4670,10 +5242,25 @@ struct ContentView: View {
                                                                         .font(.system(size: 13, weight: .medium))
                                                                         .foregroundColor(isSelected ? engine.activeAccentColor : UniformDesign.textPrimary(mode: engine.appearanceMode))
                                                                         .lineLimit(1)
-                                                                    Text(track.artist)
-                                                                        .font(.system(size: 11))
-                                                                        .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
-                                                                        .lineLimit(1)
+                                                                    
+                                                                    HStack(spacing: 6) {
+                                                                        Text(track.artist)
+                                                                            .font(.system(size: 11))
+                                                                            .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
+                                                                            .lineLimit(1)
+                                                                        
+                                                                        ForEach(engine.getTags(for: track).prefix(2), id: \.self) { tag in
+                                                                            Text(tag)
+                                                                                .font(.system(size: 8, weight: .semibold))
+                                                                                .foregroundColor(engine.activeAccentColor)
+                                                                                .padding(.horizontal, 5)
+                                                                                .padding(.vertical, 1.5)
+                                                                                .background(
+                                                                                    Capsule()
+                                                                                        .fill(engine.activeAccentColor.opacity(0.12))
+                                                                                )
+                                                                        }
+                                                                    }
                                                                 }
                                                                 
                                                                 Spacer()
@@ -4741,6 +5328,27 @@ struct ContentView: View {
                                                                 Button("Add to Queue") { engine.addToQueue(track: track) }
                                                                 Button(engine.isFavorite(track: track) ? "Remove from Favorites" : "Add to Favorites") { engine.toggleFavorite(track: track) }
                                                                 Button("Inspect File") { engine.inspectingTrack = track }
+                                                                
+                                                                Divider()
+                                                                
+                                                                Menu("Add to Playlist") {
+                                                                    if engine.userPlaylists.isEmpty {
+                                                                        Button("No Playlists (Create one in Sidebar)") {}.disabled(true)
+                                                                    } else {
+                                                                        ForEach(engine.userPlaylists) { pl in
+                                                                            Button(pl.name) {
+                                                                                engine.addTrackToPlaylist(track: track, playlistId: pl.id)
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                                
+                                                                if engine.selectedNav == .playlists, let activeId = engine.activePlaylistId {
+                                                                    Button("Remove from Playlist") {
+                                                                        engine.removeTrackFromPlaylist(track: track, playlistId: activeId)
+                                                                    }
+                                                                }
+                                                                
                                                                 Divider()
                                                                 Button("Remove from Library") { engine.removeTrack(track: track) }
                                                             }

@@ -59,11 +59,14 @@ San (Japanese for Three / Harmony) provides a clean, modern interface for listen
 - **Crossfade Transitions**: Configurable overlap transition durations (Off, 1s, 2s, 3s, 5s) between tracks.
 - **Pre-Buffered Gapless Playback**: Pre-loads next track buffers for zero-gap playback transitions.
 - **5-Band Parametric Equalizer**: Custom audio processing with presets (Flat, Bass Boost, Treble Boost, Vocal, Electronic).
+- **Sleep Timer Smart Fade-Out**: Linearly fades out the audio volume over the last 60 seconds of the timer for a cozy, smooth transition to silence.
 - **Play Count & History Tracking**: Automatically increments track play counts and tracks last-played dates.
 - **Variable Playback Speed**: Control speed from 0.5x to 2.0x.
 - **Stereo Balance Control**: Adjust left/right audio channel balance.
 
 ### Library & Smart Playlists
+- **Collapsible Playlist Folders**: Group playlists inside collapsible folders in the sidebar with right-click menus to add, rename, delete, and move playlists.
+- **Track Tagging & Filtering**: Assign tags (e.g. `#chill`, `#focus`, `#uplifting`) in the Track Inspector view. View tag badges inline on track rows, and filter the active library view instantly using tag pills.
 - **Playlist Export (.m3u / .m3u8)**: Export any custom playlist, favorites, or smart collection to standard `#EXTM3U` and UTF-8 `#EXTM3U8` playlist files via native macOS save dialogs.
 - **USB Drive / DAP Direct Sync**: Copy playlists and underlying audio files directly to connected USB flash drives or Digital Audio Players (DAPs) with relative `.m3u8` playlist generation and real-time copy progress indicator.
 - **Smart Playlists**: Auto-generated dynamic views for Recently Added, Most Played (Top 25), and Recently Played tracks.
