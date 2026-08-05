@@ -5,8 +5,17 @@ import MediaPlayer
 import Combine
 import UniformTypeIdentifiers
 import CoreMedia
+import CoreAudio
+import AVKit
 
 // MARK: - Data Models
+
+struct AudioDevice: Identifiable, Equatable, Codable {
+    var id: String { uid }
+    let name: String
+    let uid: String
+    let deviceID: UInt32
+}
 
 enum AccentTheme: String, CaseIterable, Identifiable, Codable {
     case white = "Minimalist White"
@@ -227,6 +236,7 @@ struct SavedLibraryData: Codable {
     var enableSliceOfLifeTheme: Bool?
     var enableSidebarLiquidGlass: Bool?
     var isSidebarCollapsed: Bool?
+    var selectedDeviceUID: String?
 }
 
 enum EQPreset: String, CaseIterable, Identifiable {
@@ -369,6 +379,10 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var sleepFadeVolumeFactor: Float = 1.0
     private var sleepTimer: Timer?
     
+    // Audio Output Switcher State
+    @Published var outputDevices: [AudioDevice] = []
+    @Published var selectedDeviceUID: String? = nil
+    
     // Equalizer State (5 Bands: 60Hz, 230Hz, 910Hz, 3.6kHz, 14kHz)
     @Published var selectedEQPreset: EQPreset = .flat
     @Published var eqGains: [Float] = [0, 0, 0, 0, 0]
@@ -483,6 +497,7 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
         super.init()
         setupRemoteCommandCenter()
         loadLibrary()
+        refreshOutputDevices()
     }
     
     // MARK: - Dynamic Color Extractor from Album Cover Art
@@ -1803,7 +1818,8 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
             crossfadeDuration: crossfadeDuration,
             enableSliceOfLifeTheme: enableSliceOfLifeTheme,
             enableSidebarLiquidGlass: enableSidebarLiquidGlass,
-            isSidebarCollapsed: isSidebarCollapsed
+            isSidebarCollapsed: isSidebarCollapsed,
+            selectedDeviceUID: selectedDeviceUID
         )
         do {
             let json = try JSONEncoder().encode(savedData)
@@ -1873,6 +1889,9 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
             if let cf = savedData.crossfadeDuration {
                 self.crossfadeDuration = cf
             }
+            if let dev = savedData.selectedDeviceUID {
+                self.selectedDeviceUID = dev
+            }
             
             var loadedTracks: [Track] = []
             for path in savedData.filePaths {
@@ -1893,6 +1912,166 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
             }
         } catch {
             print("Failed to load saved library: \(error.localizedDescription)")
+        }
+    }
+    
+    // MARK: - CoreAudio Device Querying & Switcher
+    
+    func getSystemDefaultOutputDeviceUID() -> String? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        
+        var deviceID: AudioDeviceID = 0
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        
+        let status = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            0,
+            nil,
+            &size,
+            &deviceID
+        )
+        
+        guard status == noErr else { return nil }
+        
+        var uidAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyDeviceUID,
+            mScope: kAudioObjectPropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        
+        var uidCF: Unmanaged<CFString>?
+        var uidSize = UInt32(MemoryLayout<CFString?>.size)
+        AudioObjectGetPropertyData(deviceID, &uidAddress, 0, nil, &uidSize, &uidCF)
+        
+        return uidCF?.takeRetainedValue() as String?
+    }
+    
+    func refreshOutputDevices() {
+        var devices: [AudioDevice] = []
+        
+        var propertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        
+        var dataSize: UInt32 = 0
+        let status = AudioObjectGetPropertyDataSize(
+            AudioObjectID(kAudioObjectSystemObject),
+            &propertyAddress,
+            0,
+            nil,
+            &dataSize
+        )
+        
+        guard status == noErr else { return }
+        
+        let deviceCount = Int(dataSize) / MemoryLayout<AudioObjectID>.size
+        var deviceIDs = [AudioObjectID](repeating: 0, count: deviceCount)
+        
+        let status2 = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &propertyAddress,
+            0,
+            nil,
+            &dataSize,
+            &deviceIDs
+        )
+        
+        guard status2 == noErr else { return }
+        
+        for deviceID in deviceIDs {
+            var streamAddress = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyStreams,
+                mScope: kAudioDevicePropertyScopeOutput,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            
+            var streamSize: UInt32 = 0
+            let streamStatus = AudioObjectGetPropertyDataSize(
+                deviceID,
+                &streamAddress,
+                0,
+                nil,
+                &streamSize
+            )
+            
+            guard streamStatus == noErr && streamSize > 0 else { continue }
+            
+            var nameAddress = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyDeviceNameCFString,
+                mScope: kAudioObjectPropertyScopeOutput,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            
+            var nameCF: Unmanaged<CFString>?
+            var nameSize = UInt32(MemoryLayout<CFString?>.size)
+            AudioObjectGetPropertyData(deviceID, &nameAddress, 0, nil, &nameSize, &nameCF)
+            
+            var uidAddress = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyDeviceUID,
+                mScope: kAudioObjectPropertyScopeOutput,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            
+            var uidCF: Unmanaged<CFString>?
+            var uidSize = UInt32(MemoryLayout<CFString?>.size)
+            AudioObjectGetPropertyData(deviceID, &uidAddress, 0, nil, &uidSize, &uidCF)
+            
+            if let name = nameCF?.takeRetainedValue() as String?,
+               let uid = uidCF?.takeRetainedValue() as String? {
+                devices.append(AudioDevice(name: name, uid: uid, deviceID: deviceID))
+            }
+        }
+        
+        DispatchQueue.main.async {
+            self.outputDevices = devices
+            if let selected = self.selectedDeviceUID {
+                if !devices.contains(where: { $0.uid == selected }) {
+                    self.selectedDeviceUID = nil
+                }
+            }
+        }
+    }
+    
+    func setOutputDevice(uid: String?) {
+        guard let targetUID = uid else {
+            self.selectedDeviceUID = nil
+            self.saveLibrary()
+            return
+        }
+        
+        guard let device = outputDevices.first(where: { $0.uid == targetUID }) else { return }
+        
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        
+        var devID = device.deviceID
+        let size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        
+        let status = AudioObjectSetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            0,
+            nil,
+            size,
+            &devID
+        )
+        
+        if status == noErr {
+            self.selectedDeviceUID = targetUID
+            self.saveLibrary()
+            self.objectWillChange.send()
+        } else {
+            print("Failed to set default output device: \(status)")
         }
     }
     
@@ -5474,9 +5653,54 @@ struct ContentView: View {
                                             Slider(value: $engine.volume, in: 0...1)
                                                 .accentColor(engine.activeAccentColor)
                                                 .frame(width: 80)
+                                            
+                                            Menu {
+                                                Button(action: {
+                                                    engine.setOutputDevice(uid: nil)
+                                                }) {
+                                                    HStack {
+                                                        Text("System Default")
+                                                        if engine.selectedDeviceUID == nil {
+                                                            Image(systemName: "checkmark")
+                                                        }
+                                                    }
+                                                }
+                                                
+                                                if !engine.outputDevices.isEmpty {
+                                                    Divider()
+                                                    ForEach(engine.outputDevices) { device in
+                                                        Button(action: {
+                                                            engine.setOutputDevice(uid: device.uid)
+                                                        }) {
+                                                            HStack {
+                                                                Text(device.name)
+                                                                if engine.selectedDeviceUID == device.uid {
+                                                                    Image(systemName: "checkmark")
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            } label: {
+                                                Image(systemName: "hifispeaker")
+                                                    .font(.system(size: 11))
+                                                    .foregroundColor(engine.selectedDeviceUID != nil ? engine.activeAccentColor : UniformDesign.textMuted(mode: engine.appearanceMode))
+                                            }
+                                            .menuStyle(BorderlessButtonMenuStyle())
+                                            .frame(width: 20)
+                                            .onHover { hovering in
+                                                if hovering {
+                                                    engine.refreshOutputDevices()
+                                                }
+                                            }
+                                            .help("Audio Output Device")
+                                            
+                                            AirPlayButtonView()
+                                                .frame(width: 16, height: 16)
+                                                .help("Cast via AirPlay")
                                         }
                                     }
-                                    .frame(minWidth: 160, maxWidth: 260, alignment: .trailing)
+                                    .frame(minWidth: 200, maxWidth: 300, alignment: .trailing)
                                 }
                                 .padding(.horizontal, 20)
                                 .padding(.bottom, 10)
@@ -5596,6 +5820,20 @@ struct ContentView: View {
         let mins = Int(seconds) / 60
         let secs = Int(seconds) % 60
         return String(format: "%02d:%02d", mins, secs)
+    }
+}
+
+// MARK: - AirPlay Route Picker Wrapper
+
+struct AirPlayButtonView: NSViewRepresentable {
+    func makeNSView(context: Context) -> AVRoutePickerView {
+        let picker = AVRoutePickerView()
+        picker.isRoutePickerButtonBordered = false
+        return picker
+    }
+    
+    func updateNSView(_ nsView: AVRoutePickerView, context: Context) {
+        // No updates needed
     }
 }
 
