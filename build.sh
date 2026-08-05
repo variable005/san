@@ -32,7 +32,9 @@ swiftc -sdk "$SDK_PATH" \
        -framework MediaPlayer \
        -framework Combine \
        -framework UniformTypeIdentifiers \
-       "$PROJECT_DIR/src/main.swift" \
+       -framework CoreAudio \
+       -framework AVKit \
+       "$PROJECT_DIR"/src/*.swift \
        -o "$APP_BUNDLE/Contents/MacOS/San"
 
 echo "Successfully compiled San.app!"
