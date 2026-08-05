@@ -230,6 +230,7 @@ struct SavedLibraryData: Codable {
     var enableSidebarLiquidGlass: Bool?
     var isSidebarCollapsed: Bool?
     var selectedDeviceUID: String?
+    var isAutoplayEnabled: Bool?
 }
 
 enum EQPreset: String, CaseIterable, Identifiable {

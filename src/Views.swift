@@ -790,6 +790,24 @@ struct PlayQueueDrawerSheet: View {
                 
                 Spacer()
                 
+                Button(action: {
+                    engine.isAutoplayEnabled.toggle()
+                    engine.saveLibrary()
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "radio")
+                            .font(.system(size: 10))
+                        Text(engine.isAutoplayEnabled ? "Autoplay ON" : "Autoplay OFF")
+                            .font(.system(size: 11, weight: .semibold))
+                    }
+                    .foregroundColor(engine.isAutoplayEnabled ? .black : UniformDesign.textSecondary(mode: engine.appearanceMode))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(engine.isAutoplayEnabled ? engine.activeAccentColor : UniformDesign.hoverHighlight(mode: engine.appearanceMode)))
+                }
+                .buttonStyle(PlainButtonStyle())
+                .help("Smart Autoplay / Radio Mode")
+                
                 if !engine.playQueue.isEmpty {
                     Button(action: { engine.clearQueue() }) {
                         Text("Clear Queue")
@@ -2195,6 +2213,26 @@ struct SettingsView: View {
                             .buttonStyle(PlainButtonStyle())
                         }
                     }
+                    
+                    Divider().background(UniformDesign.borderSubtle(mode: engine.appearanceMode))
+                    
+                    Toggle(isOn: Binding(
+                        get: { engine.isAutoplayEnabled },
+                        set: {
+                            engine.isAutoplayEnabled = $0
+                            engine.saveLibrary()
+                        }
+                    )) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Smart Queue Autoplay / Radio Mode")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(UniformDesign.textPrimary(mode: engine.appearanceMode))
+                            Text("Automatically queue similar tracks based on artist, genre, and tag metadata when your Up Next queue is exhausted.")
+                                .font(.system(size: 11))
+                                .foregroundColor(UniformDesign.textSecondary(mode: engine.appearanceMode))
+                        }
+                    }
+                    .toggleStyle(SwitchToggleStyle(tint: engine.activeAccentColor))
                 }
                 .padding(20)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -3464,6 +3502,11 @@ struct ContentView: View {
                                         
                                         ModernButton(buttonId: "repeat", icon: "repeat", size: 32, iconSize: 13, active: engine.isRepeated, engine: engine) {
                                             engine.isRepeated.toggle()
+                                        }
+                                        
+                                        ModernButton(buttonId: "autoplay", icon: "radio", size: 32, iconSize: 13, active: engine.isAutoplayEnabled, engine: engine) {
+                                            engine.isAutoplayEnabled.toggle()
+                                            engine.saveLibrary()
                                         }
                                     }
                                     

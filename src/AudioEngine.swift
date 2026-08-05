@@ -81,9 +81,10 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var sleepFadeVolumeFactor: Float = 1.0
     private var sleepTimer: Timer?
     
-    // Audio Output Switcher State
+    // Audio Output Switcher & Smart Autoplay State
     @Published var outputDevices: [AudioDevice] = []
     @Published var selectedDeviceUID: String? = nil
+    @Published var isAutoplayEnabled: Bool = false
     
     // Equalizer State (5 Bands: 60Hz, 230Hz, 910Hz, 3.6kHz, 14kHz)
     @Published var selectedEQPreset: EQPreset = .flat
@@ -480,11 +481,72 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
         updateNowPlayingInfo()
     }
     
+    // MARK: - Smart Autoplay / Radio Recommendation Engine
+    
+    func findSimilarTrack(to currentTrack: Track) -> Track? {
+        let candidates = playlist.filter { $0.id != currentTrack.id }
+        guard !candidates.isEmpty else { return nil }
+        
+        let recentPaths = Set(recentlyPlayedTracks.prefix(15).map { $0.url.path })
+        let unplayedCandidates = candidates.filter { !recentPaths.contains($0.url.path) }
+        let pool = unplayedCandidates.isEmpty ? candidates : unplayedCandidates
+        
+        let currentTags = Set(getTags(for: currentTrack).map { $0.lowercased() })
+        let currentArtist = currentTrack.artist.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let currentGenre = currentTrack.genre.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let currentAlbum = currentTrack.album.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        
+        var bestTrack: Track? = nil
+        var maxScore: Int = -1
+        
+        for track in pool {
+            var score = 0
+            
+            // 1. Artist match (+40)
+            let trackArtist = track.artist.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if !trackArtist.isEmpty && trackArtist == currentArtist && currentArtist != "unknown artist" {
+                score += 40
+            }
+            
+            // 2. Genre match (+30)
+            let trackGenre = track.genre.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if !trackGenre.isEmpty && trackGenre == currentGenre {
+                score += 30
+            }
+            
+            // 3. Tag overlap (+15 per shared hashtag)
+            let trackTags = Set(getTags(for: track).map { $0.lowercased() })
+            let sharedTags = currentTags.intersection(trackTags)
+            score += sharedTags.count * 15
+            
+            // 4. Album match (+10)
+            let trackAlbum = track.album.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if !trackAlbum.isEmpty && trackAlbum == currentAlbum && currentAlbum != "unknown album" {
+                score += 10
+            }
+            
+            score += Int.random(in: 0...5)
+            
+            if score > maxScore {
+                maxScore = score
+                bestTrack = track
+            }
+        }
+        
+        return bestTrack
+    }
+    
     func nextTrack() {
         // Priority 1: Up Next Play Queue
         if !playQueue.isEmpty {
             let next = playQueue.removeFirst()
             loadAndPlay(track: next)
+            return
+        }
+        
+        // Priority 2: Smart Autoplay Radio Mode when Queue is empty
+        if isAutoplayEnabled, let current = currentTrack, let smartRec = findSimilarTrack(to: current) {
+            loadAndPlay(track: smartRec)
             return
         }
         
@@ -1527,7 +1589,8 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
             enableSliceOfLifeTheme: enableSliceOfLifeTheme,
             enableSidebarLiquidGlass: enableSidebarLiquidGlass,
             isSidebarCollapsed: isSidebarCollapsed,
-            selectedDeviceUID: selectedDeviceUID
+            selectedDeviceUID: selectedDeviceUID,
+            isAutoplayEnabled: isAutoplayEnabled
         )
         do {
             let json = try JSONEncoder().encode(savedData)
@@ -1599,6 +1662,9 @@ class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
             }
             if let dev = savedData.selectedDeviceUID {
                 self.selectedDeviceUID = dev
+            }
+            if let auto = savedData.isAutoplayEnabled {
+                self.isAutoplayEnabled = auto
             }
             
             var loadedTracks: [Track] = []
